@@ -1,0 +1,362 @@
+#!/usr/bin/env python3
+import urllib3
+import json
+import os
+import netrc
+import io
+import argparse
+import subprocess
+
+from configparser   import ConfigParser
+from io             import StringIO
+from urllib.parse   import urlencode
+from urllib.parse   import urlparse
+
+class HTTP(object):
+
+    def __init__(self,basic_auth=None):
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        self.http       = urllib3.PoolManager()
+        self.basic_auth = basic_auth
+        self.headers    = urllib3.util.make_headers(basic_auth=basic_auth)
+        self.headers['Content-Type']='application/json'
+
+    def handle_response(self,response):
+        if response.status != 200:
+            print(response.status)
+            return None
+        return response.data.decode("utf-8", "strict")
+
+    def GET(self,url):
+        response    = self.http.request('GET', url, headers=self.headers)
+        return self.handle_response(response)
+
+    def POST(self,url,data):
+        response    = self.http.request('POST', url, headers=self.headers, body=data )
+        return self.handle_response(response)
+
+    def PUT(self,url,data):
+        response    = self.http.request('PUT', url, headers=self.headers, body=data )
+        return self.handle_response(response)
+
+
+class ConfluenceRestAPI(object):
+    def __init__(self, http, base_url, space_key):
+        self.http       = http
+        self.base_url   = base_url
+        self.space_key  = space_key
+
+    def build_url(self,param_dict):
+        return self.base_url + '/rest/api/content?' + urlencode(param_dict)
+
+    def handle_json(self,result):
+        if result is None:
+            return {}
+        return json.loads(result)
+
+    def GET_JSON(self,url):
+        result   = self.http.GET(url)
+        return self.handle_json(result)
+
+    def POST_JSON(self,url,json_dict):
+        encoded_data = json.dumps(json_dict)
+        result = self.http.POST(url,encoded_data)
+        return self.handle_json(result)
+
+    def PUT_JSON(self,url,json_dict):
+        encoded_data = json.dumps(json_dict)
+        result = self.http.PUT(url,encoded_data)
+        return self.handle_json(result)
+
+    def ancestors(self, title):
+        expand  = 'ancestors'
+        url     = self.build_url({'spaceKey':self.space_key,'expand':expand,'title':title})
+        return self.GET_JSON(url)
+
+    def version(self, title):
+        expand  = 'version'
+        url     = self.build_url({'spaceKey':self.space_key,'expand':expand,'title':title})
+        return self.GET_JSON(url)
+
+    def create_page(self,title,xhtml, ancestor_id=None):
+        dict={
+            'type'   : 'page',
+            'title'  : title,
+            'space'  : {'key' : self.space_key},
+            'body'   : {'storage':{'value': xhtml, 'representation' : 'storage'}}
+        }
+        if ancestor_id is not None:
+            dict2= { 'ancestors': [ {'type':'page','id': ancestor_id } ] }
+            # Merge dict
+            dict = { **dict, **dict2}
+
+        url= self.base_url + '/rest/api/content/'
+        return self.POST_JSON(url,dict)
+
+    def update_page(self,id,version,title,value,ancestor_id=None):
+        dict={
+            'id'     : id,
+            'type'   : 'page',
+            'title'  : title,
+            'space'  : {'key' : self.space_key},
+            'body'   : {'storage':{'value': value, 'representation' : 'storage'}},
+            'version': {'number': version}
+        }
+        if ancestor_id is not None:
+            dict2= { 'ancestors':[{'type':'page','id': ancestor_id}] }
+            # Merge dict
+            dict = { **dict, **dict2}
+        #print(dict)
+        url     = self.base_url + '/rest/api/content/'+id
+        return self.PUT_JSON(url,dict)
+
+
+
+class Configuration(object):
+    def __init__(self):
+        pass
+        
+    def find_root(self, directory, config_name, config_is_dir=True):
+        while True:
+            filepath = os.path.join(directory,config_name)
+
+            if config_is_dir and os.path.isdir(filepath):
+                    return directory
+            elif os.path.isfile(filepath):
+                    return directory
+
+            if directory == os.sep:
+                return ""
+
+            directory = os.path.normpath(os.path.join(directory, os.pardir))
+
+    def get_relative_dir(self, cwd,config_root):
+        if config_root == cwd:
+            rel = ""
+        else:
+            rel  = cwd[(len(config_root)+1):]
+        return rel
+
+    def read_netrc(self, config_root, netrc_file='.netrc'):
+        netrc_filepath = os.path.join(config_root, netrc_file)
+        # Either '.netrc' in config_root or in HOME of user
+        if os.path.isfile(netrc_filepath):
+            netRC =  netrc.netrc(netrc_filepath)
+        else:
+            netRC =  netrc.netrc() 
+        return netRC
+
+    def parse_config(self,config_filepath):
+        return parser
+
+    def init(self, config_name, netrc_filename='.netrc', working_directory=None):
+        if working_directory is None:
+            working_directory = os.getcwd()
+
+        self.WORKING_DIRECTORY  = working_directory
+        self.CONFIG_ROOT        = self.find_root(working_directory,config_name,config_is_dir=False)
+
+        self.RELATIVE_DIR       = self.get_relative_dir(working_directory,self.CONFIG_ROOT)
+
+        config_filepath         = os.path.join(self.CONFIG_ROOT,config_name)
+
+        self.CONFIG_PARSER      = ConfigParser()
+        self.CONFIG_FILEPATH    = self.CONFIG_PARSER.read(config_filepath)
+        
+        self.NETRC              = self.read_netrc(self.CONFIG_ROOT, netrc_filename)
+
+
+class ToolConfiguration(Configuration):
+    def __init__(self):
+        pass
+
+    def get_option_value(self,section_name, option, default_value):
+        if self.CONFIG_PARSER.has_option(section_name, option):
+            return self.CONFIG_PARSER.get(section_name, option)
+        return default_value
+        
+    def run(self, config_name, section_name='default'):
+        self.init(config_name)
+
+        self.BASE_URL =  self.get_option_value(section_name, 'base_url',  'http://localhost:8080')
+        self.SPACE_KEY=  self.get_option_value(section_name, 'space_key', '')
+
+        result          = urlparse(self.BASE_URL)
+        self.HOSTNAME   = result.netloc.split(":")[0]
+        result          = self.NETRC.authenticators(self.HOSTNAME)
+        if result is None:
+            self.LOGIN=""
+            self.ACCOUNT=""
+            self.PASSWORD=""
+        else:
+            self.LOGIN, self.ACCOUNT, self.PASSWORD  = result
+        return 0
+
+class ShellCmd(object):
+
+    def subprocess(self, args):
+        proc = subprocess.Popen(args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE)
+        return proc
+
+    def get_input_stream(self, stream):
+        # Python 2 ( file doesn't work in python3, therefore stringify
+        if str(type(stream)) == "<type 'file'>":
+            return stream
+        return io.TextIOWrapper(stream, encoding='utf-8')
+
+    def read_stream(self, stream):
+       return stream.read()
+
+    def execute(self, args):
+        proc            = self.subprocess(args)
+        input_stream    = self.get_input_stream(proc.stdout)
+        content         = self.read_stream(input_stream)
+        self.exit_code  = proc.wait()
+        return content
+
+
+class Confluence(object):
+    def __init__(self):
+        self.config = ToolConfiguration()
+        result = self.config.run(".confluence-asciidoctor")
+       
+        basic_auth  = self.config.LOGIN + ":" + self.config.PASSWORD
+        base_url    = self.config.BASE_URL
+        space_key   = self.config.SPACE_KEY
+
+        self.http   = HTTP(basic_auth)
+        self.c      = ConfluenceRestAPI(self.http, base_url,space_key)
+
+        self.cache  = {}
+
+    def json_pretty_print(self,json_data):
+        result      = json.dumps(json_data, indent=2)
+        print(result)
+
+    def parse_cmdline(self):
+        parser = argparse.ArgumentParser("confluence-ascii")
+        parser.add_argument('file', metavar='file', nargs='+', help='file')
+        parser.add_argument('-p', '--parent-page-title', metavar='parent_page_title', help='title of the parent page')
+        parsed_args = parser.parse_args()
+        return parsed_args
+
+    def filename_to_title(self, name):
+        basename= os.path.basename(name)
+        title = ('.').join(basename.split('.')[:-1])  # Remove .txt extension
+        if title == "":
+            title = basename
+        return title
+
+    def relpath_to_lookup_name(self,relpath):
+        return relpath
+
+    def parse_path(self,path):
+        result=""
+        stack=[]
+        expect_number=False
+        for c in path:
+            if expect_number:
+                if c == ']':
+                    if not result.isdigit():
+                        print("no digit")
+                        return None
+                    stack.append(result)
+                    result = ""
+                    expect_number = False
+                    continue
+            else:
+                if c == '[':
+                    stack.append(result)
+                    result=""
+                    expect_number=True
+                    continue
+                if c == '.':
+                    if result != "":
+                        stack.append(result)
+                    result = ""
+                    continue
+	    
+            result = result + c
+
+        stack.append(result)
+        return stack
+
+    def get_element_by_path(self,path,lookup):
+        elements = self.parse_path(path) 
+        for element in elements:
+            if element.isdigit():
+                pos = int(element)
+                if pos >= len(lookup):
+                    return None
+                lookup = lookup[pos]
+            else:
+                if element in lookup:
+                    lookup = lookup[element]
+                else:
+                    return None
+
+        return lookup
+
+    def read_from_asciidoctor(self,filename):
+        shellCmd = ShellCmd()
+        args = [ 'asciidoctor', '-s', '-b', 'xhtml5',  '-o', '-',  filename ]
+        content = shellCmd.execute(args)
+        return content
+
+    def get_ancestor_id(self, title):
+        json_data   = self.c.version(title)
+        ancestor_id = self.get_element_by_path("results[0].id",json_data)
+        return ancestor_id
+
+    def get_cached_ancestor_id(self,title):
+        if title in self.cache:
+            ancestor_id      = self.cache[title]
+        else:
+            ancestor_id      = self.get_ancestor_id(title)
+            self.cache[title]= ancestor_id
+
+        return ancestor_id
+
+    def publish(self, title, content, ancestor_id):
+        json_result  = self.c.version(title)
+        if not json_result.get('results', None):
+            json_result2 = self.c.create_page(title,content,ancestor_id)
+        else:
+            id      = self.get_element_by_path("results[0].id",json_result)
+            version = self.get_element_by_path("results[0].version.number",json_result)
+           
+            version = version + 1 
+            json_result2 = self.c.update_page(id,version,title,content,ancestor_id)
+
+        return json_result2 
+
+    def process_file(self, filename,parent_page_title=None):
+        title   = self.filename_to_title(filename)
+        abspath = os.path.dirname(os.path.abspath(filename))
+
+        if abspath == self.config.CONFIG_ROOT:
+            relpath = ""
+        else:
+            relpath = abspath[(len(self.config.CONFIG_ROOT)+1):]
+
+        if parent_page_title is None and relpath != "":
+            parent_page_title = self.relpath_to_lookup_name(relpath)
+
+        ancestor_id = self.get_cached_ancestor_id(parent_page_title)
+
+        print("Publishing '"+title+"' to '"+self.config.HOSTNAME+"' under page '"+parent_page_title+"'")
+        xhtml   = self.read_from_asciidoctor(filename)
+        result  = self.publish(title,xhtml,ancestor_id)
+
+    def run(self):
+        parsed_args = self.parse_cmdline()
+        for filename in parsed_args.file:
+            self.process_file(filename,parsed_args.parent_page_title)
+
+
+if __name__ == "__main__":
+    confluence = Confluence()
+    confluence.run()
+

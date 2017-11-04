@@ -1,0 +1,5 @@
+# goes in the root directory of your project as ".confluence-asciidoctor"
+
+[default]
+base_url=http://127.0.0.1/confluence
+space_key=YOUR_SPACE_KEY
