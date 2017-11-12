@@ -1,4 +1,10 @@
 #!/usr/bin/env python
+# FIXME: IOError if  .netrc  is missing
+# FIXME: urllib2.Error if http is used and server tries to redirect to https
+# FIXME: proxy handling does not exist, which is a MUST in a corporate environment
+# FIXME: putting directories as publishing arguments --> should be ignored or fail?
+# FIXME: publishing a file on the same level as .confluence-asciidoctor
+
 import sys
 PYTHON_VERSION=sys.version_info[0]
 
