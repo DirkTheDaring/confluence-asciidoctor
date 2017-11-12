@@ -1,5 +1,20 @@
-#!/usr/bin/env python3
-import urllib3
+#!/usr/bin/env python
+import sys
+PYTHON_VERSION=sys.version_info[0]
+
+if PYTHON_VERSION == 3:
+    import urllib3
+    from configparser   import ConfigParser
+    from urllib.parse   import urlencode
+    from urllib.parse   import urlparse
+
+elif PYTHON_VERSION == 2:
+    import urllib2
+    from ConfigParser   import ConfigParser
+    from urllib         import urlencode
+    from urlparse       import urlparse
+    import base64
+
 import json
 import os
 import netrc
@@ -7,12 +22,59 @@ import io
 import argparse
 import subprocess
 
-from configparser   import ConfigParser
 from io             import StringIO
-from urllib.parse   import urlencode
-from urllib.parse   import urlparse
 
-class HTTP(object):
+# do not raise exceptions on these return codes
+
+if PYTHON_VERSION == 2:
+  class HTTPErrorHandlerExtension(urllib2.BaseHandler):
+    def http_error_201(self, request, response, code, msg, hdrs):
+        return response
+    def http_error_204(self, request, response, code, msg, hdrs):
+        return response
+    def http_error_206(self, request, response, code, msg, hdrs):
+        return response
+
+  class HTTP(object):
+    def __init__(self,basic_auth):
+        handler_extension = urllib2.build_opener(HTTPErrorHandlerExtension)
+        urllib2.install_opener(handler_extension)
+        self.basic_auth = base64.b64encode(basic_auth)
+
+    def add_headers(self, request):
+        request.add_header('Authorization', 'Basic %s' % self.basic_auth)   
+        request.add_header('Content-Type','application/json')
+
+    def handle_response(self,request):
+        response_status = request.getcode()
+        if response_status != 200:
+            print(response_status)
+            return None
+        return request.read()
+
+    def GET(self,url):
+        request = urllib2.Request(url)
+        self.add_headers(request)
+        response = urllib2.urlopen(request)            
+        return self.handle_response(response)
+
+    def POST(self,url,data):
+        request = urllib2.Request(url,data)
+        self.add_headers(request)
+        request.get_method = lambda: 'POST'
+        response = urllib2.urlopen(request)            
+        return self.handle_response(response)
+
+    def PUT(self,url,data):
+        request = urllib2.Request(url,data)
+        self.add_headers(request)
+        request.get_method = lambda: 'PUT'
+        response = urllib2.urlopen(request)            
+        return self.handle_response(response)
+
+
+elif PYTHON_VERSION == 3:
+  class HTTP(object):
 
     def __init__(self,basic_auth=None):
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -78,6 +140,11 @@ class ConfluenceRestAPI(object):
         url     = self.build_url({'spaceKey':self.space_key,'expand':expand,'title':title})
         return self.GET_JSON(url)
 
+    def merge_dict(self, x, y):
+        z = x.copy()
+        z.update(y)
+        return z
+
     def create_page(self,title,xhtml, ancestor_id=None):
         dict={
             'type'   : 'page',
@@ -88,7 +155,8 @@ class ConfluenceRestAPI(object):
         if ancestor_id is not None:
             dict2= { 'ancestors': [ {'type':'page','id': ancestor_id } ] }
             # Merge dict
-            dict = { **dict, **dict2}
+            #dict = { **dict, **dict2}
+            dict = self.merge_dict(dict,dict2)
 
         url= self.base_url + '/rest/api/content/'
         return self.POST_JSON(url,dict)
@@ -105,7 +173,8 @@ class ConfluenceRestAPI(object):
         if ancestor_id is not None:
             dict2= { 'ancestors':[{'type':'page','id': ancestor_id}] }
             # Merge dict
-            dict = { **dict, **dict2}
+            #dict = { **dict, **dict2}
+            dict = self.merge_dict(dict,dict2)
         #print(dict)
         url     = self.base_url + '/rest/api/content/'+id
         return self.PUT_JSON(url,dict)
