@@ -1,0 +1,7 @@
+== Known issues
+
+Confluence has issues with the output of asciidoctor
+
+=== Tables
+asciidoctor uses colbgroups to set the column width. For some unknown reason, confluence applies the width settings in colgroups in *REVERSE* order.
+Therefore the tool contains a fix, which removes the colgroups and puts the width on the table headers.

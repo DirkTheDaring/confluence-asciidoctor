@@ -27,6 +27,7 @@ import netrc
 import io
 import argparse
 import subprocess
+import lxml.etree as ET
 
 from io             import StringIO
 
@@ -184,6 +185,126 @@ class ConfluenceRestAPI(object):
         #print(dict)
         url     = self.base_url + '/rest/api/content/'+id
         return self.PUT_JSON(url,dict)
+
+
+class ConfluenceFixes:
+  def  __init__(self):
+    pass
+
+
+  def find_width_value(self,style):
+    settings = style.split(';')
+    for setting in settings:
+        if setting == '':
+            continue
+        key, value = setting.split(':')
+        if key == 'width':
+            value = value.strip()
+            #print(value)
+            return value
+    return ''
+
+  def handle_table(self,table,ns_xhtml):
+    colgroup = table.find('xhtml:colgroup', namespaces=ns_xhtml)
+    if colgroup is None:
+        return
+    cols = colgroup.findall("xhtml:col", namespaces=ns_xhtml)
+    list = []
+    for col in cols:
+        style=col.attrib['style']
+        value = self.find_width_value(style)
+        list.append(value)
+
+    table.remove(colgroup)
+
+
+    thead    = table.find('xhtml:thead',    namespaces=ns_xhtml)
+
+    if thead is None:
+        tbody    = table.find('xhtml:tbody',namespaces=ns_xhtml)
+        if tbody is None:
+            return  
+        rows = tbody.findall('xhtml:tr',   namespaces=ns_xhtml)
+        if rows is None:
+            return 
+
+        for row in rows:
+            i=0
+            columns  = row.findall('xhtml:td',   namespaces=ns_xhtml)
+            for col in columns:
+                if list[i] != '':
+                    col.attrib['width']=list[i]
+                i = i +1 
+    else:
+        i=0
+        ths    = thead.findall('xhtml:tr/xhtml:th',   namespaces=ns_xhtml)
+        for th in ths:
+            if list[i] != '':
+                th.attrib['width']=list[i]
+            i = i + 1
+
+ 
+  def fix_column_width(self,dom):
+    ns_xhtml= {"xhtml": "http://www.w3.org/1999/xhtml"}
+    tables  =  dom.xpath('/xhtml:html/xhtml:body//xhtml:table', namespaces=ns_xhtml)
+    for table in tables:
+        self.handle_table(table,ns_xhtml)
+
+
+  # This gives the same result as the "-s" switch in asciidoctor
+  def extract_content_div_xsl(self):
+    return '''<xsl:stylesheet
+        version="1.0"
+        xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+        xmlns:x="http://www.w3.org/1999/xhtml"
+        exclude-result-prefixes="x"
+        >
+
+        <xsl:output indent="yes" method="xml" omit-xml-declaration="yes"  />
+
+        <xsl:template match="/">
+                <xsl:apply-templates select="x:html/x:body/x:div[@id='content']/x:*"/>
+        </xsl:template>
+
+
+        <xsl:template match="@*|node()">
+        <xsl:copy>
+            <xsl:apply-templates select="@*|node()"/>
+        </xsl:copy>
+        </xsl:template>
+
+        <!-- Remove namespace magic -->
+        <xsl:template match="x:*">
+                <xsl:element name="{local-name()}">
+                        <xsl:copy-of select="namespace::*[not(. = namespace-uri(..))]"/>
+                        <xsl:apply-templates select="@*|node()"/>
+                </xsl:element>
+        </xsl:template>
+
+</xsl:stylesheet>
+'''
+  def extract_content(self,dom):
+    xslt = ET.XML(self.extract_content_div_xsl())
+    transform = ET.XSLT(xslt)
+    newdom = transform(dom)
+    return newdom
+
+  def process_dom(self, dom):
+    self.fix_column_width(dom)
+    newdom = self.extract_content(dom)
+    result = ET.tostring(newdom, pretty_print=True, encoding="UTF-8").decode('utf-8')
+    return result
+
+  def process_text(self,xhtml_textstring):
+    dom     = ET.XML(xhtml_textstring)
+    result  = self.process_dom(dom)
+    return result 
+
+  def process_file(self, filename):
+    dom    = ET.parse(xml_filename)
+    xhtml   = dom.getroot()
+    result = self.process_dom(xhtml)
+    return result 
 
 
 
@@ -376,7 +497,9 @@ class Confluence(object):
 
     def read_from_asciidoctor(self,filename):
         shellCmd = ShellCmd()
-        args = [ 'asciidoctor', '-s', '-b', 'xhtml5',  '-o', '-',  filename ]
+        args = [ 'asciidoctor',  '-b', 'xhtml5',  '-o', '-',  filename ]
+#        args = [ 'asciidoctor', '-s', '-b', 'xhtml5',  '-o', '-',  filename ]
+#        args = [ 'asciidoctor','-s','-d','book','-b', 'xhtml5',  '-o', '-',  filename ]
         content = shellCmd.execute(args)
         return content
 
@@ -422,8 +545,13 @@ class Confluence(object):
         ancestor_id = self.get_cached_ancestor_id(parent_page_title)
 
         print("Publishing '"+title+"' to '"+self.config.HOSTNAME+"' under page '"+parent_page_title+"'")
+
         xhtml   = self.read_from_asciidoctor(filename)
-        result  = self.publish(title,xhtml,ancestor_id)
+
+        fix = ConfluenceFixes()
+        xhtml2 = fix.process_text(xhtml)
+
+        result  = self.publish(title,xhtml2,ancestor_id)
 
     def run(self):
         parsed_args = self.parse_cmdline()
