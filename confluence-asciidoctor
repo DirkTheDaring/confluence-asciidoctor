@@ -31,6 +31,8 @@ import lxml.etree as ET
 
 from io             import StringIO
 
+from poster.encode        import multipart_encode
+from poster.streaminghttp import register_openers
 # do not raise exceptions on these return codes
 
 if PYTHON_VERSION == 2:
@@ -47,10 +49,16 @@ if PYTHON_VERSION == 2:
         handler_extension = urllib2.build_opener(HTTPErrorHandlerExtension)
         urllib2.install_opener(handler_extension)
         self.basic_auth = base64.b64encode(basic_auth)
+        # File Upload
+        register_openers()
 
-    def add_headers(self, request):
+    def add_headers(self, request, headers={}):
         request.add_header('Authorization', 'Basic %s' % self.basic_auth)   
         request.add_header('Content-Type','application/json')
+
+        # will overwrite alread existing key/value pair if key name collides
+        for key in headers.keys():
+            request.add_header(key,headers[key])
 
     def handle_response(self,request):
         response_status = request.getcode()
@@ -65,9 +73,9 @@ if PYTHON_VERSION == 2:
         response = urllib2.urlopen(request)            
         return self.handle_response(response)
 
-    def POST(self,url,data):
+    def POST(self,url,data,headers=None):
         request = urllib2.Request(url,data)
-        self.add_headers(request)
+        self.add_headers(request,headers)
         request.get_method = lambda: 'POST'
         response = urllib2.urlopen(request)            
         return self.handle_response(response)
@@ -132,6 +140,11 @@ class ConfluenceRestAPI(object):
         result = self.http.POST(url,encoded_data)
         return self.handle_json(result)
 
+    def POST_FILE(self,url,encoded_data,headers):
+        #encoded_data = json.dumps(json_dict)
+        result = self.http.POST(url,encoded_data,headers)
+        return self.handle_json(result)
+
     def PUT_JSON(self,url,json_dict):
         encoded_data = json.dumps(json_dict)
         result = self.http.PUT(url,encoded_data)
@@ -187,9 +200,42 @@ class ConfluenceRestAPI(object):
         return self.PUT_JSON(url,dict)
 
 
+    def list_attachments(self,id):
+        url = self.base_url + '/rest/api/content/'+id+"/child/attachment"
+        return self.GET_JSON(url)
+
+    # https://community.atlassian.com/t5/Confluence-questions/How-to-post-attachments-to-confluence-page/qaq-p/214853
+    # https://community.atlassian.com/t5/Confluence-questions/Can-i-update-file-attachments-using-the-rest-api/qaq-p/308327
+    def attach_file_to_page(self,filepath,id):
+
+        if not os.path.exists(filepath):
+            print("Attachment File does not exist: "+filepath)
+            return 
+        json_result = self.list_attachments(id)
+
+        for result in json_result['results']:
+            existing_filename = result['title']
+            if os.path.basename(filepath) == existing_filename:
+                print("Attachment already exists(skipped): "+ str(existing_filename))
+                return
+
+        print("Uploading attachment: "+filepath)
+        url  = self.base_url + '/rest/api/content/'+id+"/child/attachment"
+
+        f = open(filepath, 'r')
+        filename = f.name
+ 
+        params = { "file": f, "comment": "This is a test"}
+        data, headers = multipart_encode(params)
+
+        headers["X-Atlassian-Token"]= "nocheck"
+        self.POST_FILE(url,data,headers)
+        f.close()
+
 class ConfluenceFixes:
   def  __init__(self):
-    pass
+    self.image_src_list = []
+    self.a_href_list = []
 
 
   def find_width_value(self,style):
@@ -244,6 +290,7 @@ class ConfluenceFixes:
             i = i + 1
 
  
+ 
   def fix_column_width(self,dom):
     ns_xhtml= {"xhtml": "http://www.w3.org/1999/xhtml"}
     tables  =  dom.xpath('/xhtml:html/xhtml:body//xhtml:table', namespaces=ns_xhtml)
@@ -257,13 +304,27 @@ class ConfluenceFixes:
         version="1.0"
         xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
         xmlns:x="http://www.w3.org/1999/xhtml"
+	xmlns:ac="http://www.atlassian.com/schema/confluence/4/ac/"
+	xmlns:ri="http://www.atlassian.com/schema/confluence/4/ri/"
         exclude-result-prefixes="x"
         >
 
         <xsl:output indent="yes" method="xml" omit-xml-declaration="yes"  />
 
         <xsl:template match="/">
+                <div>
                 <xsl:apply-templates select="x:html/x:body/x:div[@id='content']/x:*"/>
+                </div>
+        </xsl:template>
+
+        <xsl:template match="x:img">
+		<ac:image>
+			<xsl:element name="ri:attachment" >
+			    	<xsl:attribute name="ri:filename">
+					<xsl:value-of select="@src" />
+				</xsl:attribute>
+			</xsl:element>	
+		</ac:image>
         </xsl:template>
 
 
@@ -289,8 +350,24 @@ class ConfluenceFixes:
     newdom = transform(dom)
     return newdom
 
+  def extract_img_source(self,dom):
+    ns_xhtml= {"xhtml": "http://www.w3.org/1999/xhtml"}
+    self.image_src_list  =  dom.xpath('/xhtml:html/xhtml:body//xhtml:img/@src', namespaces=ns_xhtml)
+
+  def get_image_src_list(self):
+    return self.image_src_list
+
+  def extract_a_source(self,dom):
+    ns_xhtml= {"xhtml": "http://www.w3.org/1999/xhtml"}
+    self.a_href_list  =  dom.xpath('/xhtml:html/xhtml:body//xhtml:a/@href', namespaces=ns_xhtml)
+
+  def get_a_href_list(self):
+    return self.a_href_list
+
+ 
   def process_dom(self, dom):
     self.fix_column_width(dom)
+    self.extract_img_source(dom)
     newdom = self.extract_content(dom)
     result = ET.tostring(newdom, pretty_print=True, encoding="UTF-8").decode('utf-8')
     return result
@@ -305,6 +382,7 @@ class ConfluenceFixes:
     xhtml   = dom.getroot()
     result = self.process_dom(xhtml)
     return result 
+
 
 
 
@@ -550,8 +628,12 @@ class Confluence(object):
 
         fix = ConfluenceFixes()
         xhtml2 = fix.process_text(xhtml)
-
         result  = self.publish(title,xhtml2,ancestor_id)
+        id = result["id"]
+
+        for img in fix.get_image_src_list():
+            self.c.attach_file_to_page(img,id)
+            #self.c.attach_file_to_page('README.txt',id)
 
     def run(self):
         parsed_args = self.parse_cmdline()
