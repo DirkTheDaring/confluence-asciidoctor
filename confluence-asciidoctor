@@ -33,6 +33,10 @@ from io             import StringIO
 
 from poster.encode        import multipart_encode
 from poster.streaminghttp import register_openers
+from poster.encode        import gen_boundary
+from poster.encode        import get_headers
+from poster.encode        import MultipartParam
+import mimetypes
 # do not raise exceptions on these return codes
 
 if PYTHON_VERSION == 2:
@@ -52,10 +56,12 @@ if PYTHON_VERSION == 2:
         # File Upload
         register_openers()
 
-    def add_headers(self, request, headers={}):
+    def add_headers(self, request, headers=None):
         request.add_header('Authorization', 'Basic %s' % self.basic_auth)   
         request.add_header('Content-Type','application/json')
 
+        if headers is None:
+            return
         # will overwrite alread existing key/value pair if key name collides
         for key in headers.keys():
             request.add_header(key,headers[key])
@@ -204,6 +210,56 @@ class ConfluenceRestAPI(object):
         url = self.base_url + '/rest/api/content/'+id+"/child/attachment"
         return self.GET_JSON(url)
 
+
+   
+    @classmethod
+    def from_params2(cls, params):
+
+        if hasattr(params, 'items'):
+            params = params.items()
+        retval = []
+
+        for item in params:
+            if isinstance(item, MultipartParam):
+               retval.append(item)
+               continue
+
+            name, value = item
+            if hasattr(value, 'read'):
+               # Looks like a file object
+                filename = getattr(value, 'name', None)
+                filename = os.path.basename(filename)
+                if filename is not None:
+                    filetype = mimetypes.guess_type(filename)[0]
+                else:
+                    filetype = None
+   
+                retval.append(MultipartParam(name=name, filename=filename,
+                    filetype=filetype, fileobj=value))
+            else:
+                retval.append(MultipartParam(name, value))
+
+        return retval
+
+    def multipart_encode2(self,params,boundary=None):
+
+        if boundary is None:
+            boundary = gen_boundary()
+        else:
+            boundary = urllib.quote_plus(boundary)
+
+        headers = get_headers(params, boundary)
+        params =  self.from_params2(params)
+
+        
+        def yielder():
+            for param in params:
+                for block in param.iter_encode(boundary):
+                    yield block
+            yield "--%s--\r\n" % boundary
+
+        return yielder(), headers
+    
     # https://community.atlassian.com/t5/Confluence-questions/How-to-post-attachments-to-confluence-page/qaq-p/214853
     # https://community.atlassian.com/t5/Confluence-questions/Can-i-update-file-attachments-using-the-rest-api/qaq-p/308327
     def attach_file_to_page(self,filepath,id):
@@ -215,28 +271,40 @@ class ConfluenceRestAPI(object):
 
         for result in json_result['results']:
             existing_filename = result['title']
+            #print(existing_filename)
             if os.path.basename(filepath) == existing_filename:
+            #if filepath == existing_filename:
                 print("Attachment already exists(skipped): "+ str(existing_filename))
                 return
 
         print("Uploading attachment: "+filepath)
         url  = self.base_url + '/rest/api/content/'+id+"/child/attachment"
+        #url  = "http://127.0.0.1:7039"+ '/rest/api/content/'+id+"/child/attachment"
 
         f = open(filepath, 'r')
         filename = f.name
- 
-        params = { "file": f, "comment": "This is a test"}
-        data, headers = multipart_encode(params)
+        params = {  "file": f, 
+                    "comment": "This is a test",
+                    "filename": "bla"
+                }
 
+        #data, headers = multipart_encode(params)
+        data, headers = self.multipart_encode2(params)
+        
         headers["X-Atlassian-Token"]= "nocheck"
         self.POST_FILE(url,data,headers)
         f.close()
 
 class ConfluenceFixes:
+
   def  __init__(self):
     self.image_src_list = []
     self.a_href_list = []
-
+    self.namespaces = {
+        "xhtml":    "http://www.w3.org/1999/xhtml",
+	"ac":       "http://www.atlassian.com/schema/confluence/4/ac/",
+	"ri":       "http://www.atlassian.com/schema/confluence/4/ri/"
+    }
 
   def find_width_value(self,style):
     settings = style.split(';')
@@ -250,11 +318,12 @@ class ConfluenceFixes:
             return value
     return ''
 
-  def handle_table(self,table,ns_xhtml):
-    colgroup = table.find('xhtml:colgroup', namespaces=ns_xhtml)
+  def handle_table(self,table,namespace_hash):
+
+    colgroup = table.find('xhtml:colgroup', namespaces=namespace_hash)
     if colgroup is None:
         return
-    cols = colgroup.findall("xhtml:col", namespaces=ns_xhtml)
+    cols = colgroup.findall("xhtml:col", namespaces=namespace_hash)
     list = []
     for col in cols:
         style=col.attrib['style']
@@ -264,26 +333,26 @@ class ConfluenceFixes:
     table.remove(colgroup)
 
 
-    thead    = table.find('xhtml:thead',    namespaces=ns_xhtml)
+    thead    = table.find('xhtml:thead',    namespaces=namespace_hash)
 
     if thead is None:
-        tbody    = table.find('xhtml:tbody',namespaces=ns_xhtml)
+        tbody    = table.find('xhtml:tbody',namespaces=namespace_hash)
         if tbody is None:
             return  
-        rows = tbody.findall('xhtml:tr',   namespaces=ns_xhtml)
+        rows = tbody.findall('xhtml:tr',   namespaces=namespace_hash)
         if rows is None:
             return 
 
         for row in rows:
             i=0
-            columns  = row.findall('xhtml:td',   namespaces=ns_xhtml)
+            columns  = row.findall('xhtml:td',   namespaces=namespace_hash)
             for col in columns:
                 if list[i] != '':
                     col.attrib['width']=list[i]
                 i = i +1 
     else:
         i=0
-        ths    = thead.findall('xhtml:tr/xhtml:th',   namespaces=ns_xhtml)
+        ths    = thead.findall('xhtml:tr/xhtml:th',   namespaces=namespace_hash)
         for th in ths:
             if list[i] != '':
                 th.attrib['width']=list[i]
@@ -292,10 +361,19 @@ class ConfluenceFixes:
  
  
   def fix_column_width(self,dom):
-    ns_xhtml= {"xhtml": "http://www.w3.org/1999/xhtml"}
-    tables  =  dom.xpath('/xhtml:html/xhtml:body//xhtml:table', namespaces=ns_xhtml)
+    tables  =  dom.xpath('/xhtml:html/xhtml:body//xhtml:table', namespaces=self.namespaces)
     for table in tables:
-        self.handle_table(table,ns_xhtml)
+        self.handle_table(table,self.namespaces)
+
+#        <xsl:template match="x:img">
+#		<ac:image>
+#			<xsl:element name="ri:attachment" >
+#			    	<xsl:attribute name="ri:filename">
+#					<xsl:value-of select="@src" />
+#				</xsl:attribute>
+#			</xsl:element>	
+#		</ac:image>
+#        </xsl:template>
 
 
   # This gives the same result as the "-s" switch in asciidoctor
@@ -317,16 +395,6 @@ class ConfluenceFixes:
                 </div>
         </xsl:template>
 
-        <xsl:template match="x:img">
-		<ac:image>
-			<xsl:element name="ri:attachment" >
-			    	<xsl:attribute name="ri:filename">
-					<xsl:value-of select="@src" />
-				</xsl:attribute>
-			</xsl:element>	
-		</ac:image>
-        </xsl:template>
-
 
         <xsl:template match="@*|node()">
         <xsl:copy>
@@ -344,30 +412,82 @@ class ConfluenceFixes:
 
 </xsl:stylesheet>
 '''
+
+    
+
+
   def extract_content(self,dom):
     xslt = ET.XML(self.extract_content_div_xsl())
     transform = ET.XSLT(xslt)
     newdom = transform(dom)
     return newdom
 
+  def img_query(self,dom):
+    result =  dom.xpath('/xhtml:html/xhtml:body//xhtml:img', namespaces=self.namespaces)
+    return result
+
+  def create_standard_attachment(self, filename):
+    new_ac_element = ET.Element('{http://www.atlassian.com/schema/confluence/4/ac/}image', nsmap=self.namespaces)
+    new_ri_element = ET.SubElement(new_ac_element, 
+         '{http://www.atlassian.com/schema/confluence/4/ri/}attachment', 
+        {'{http://www.atlassian.com/schema/confluence/4/ri/}filename': filename },
+                nsmap=self.namespaces)
+    return new_ac_element
+
+  def create_macro_attachment(self, filename, height="250"):
+    new_ac_element = ET.Element('{http://www.atlassian.com/schema/confluence/4/ac/}structured-macro', 
+        {'{http://www.atlassian.com/schema/confluence/4/ac/}name':          'view-file',
+         '{http://www.atlassian.com/schema/confluence/4/ac/}schema-version':'1' },
+        nsmap=self.namespaces)
+
+    new_ac_parameter_element = ET.SubElement(new_ac_element, 
+         '{http://www.atlassian.com/schema/confluence/4/ac/}parameter', 
+        {'{http://www.atlassian.com/schema/confluence/4/ac/}name': 'name' },
+                nsmap=self.namespaces)
+
+    new_ri_element = ET.SubElement(new_ac_parameter_element, 
+         '{http://www.atlassian.com/schema/confluence/4/ri/}attachment', 
+        {'{http://www.atlassian.com/schema/confluence/4/ri/}filename': filename },
+                nsmap=self.namespaces)
+
+    new_ac_parameter2_element = ET.SubElement(new_ac_element, 
+         '{http://www.atlassian.com/schema/confluence/4/ac/}parameter', 
+        {'{http://www.atlassian.com/schema/confluence/4/ac/}name': 'height' },
+                nsmap=self.namespaces)
+    new_ac_parameter2_element.text = height
+    return new_ac_element
+
+
+  def xxx(self,dom):
+    img_list = self.img_query(dom)
+    for img in img_list:
+        src = img.attrib['src']
+        # Only basename 
+        src = os.path.basename(src)
+
+        parent = img.getparent()
+        if src.endswith('pptx') or src.endswith('pdf'):
+            new_ac_element = self.create_macro_attachment(src)
+        else:
+            new_ac_element = self.create_standard_attachment(src)
+        parent.replace(img,new_ac_element)
+
   def extract_img_source(self,dom):
-    ns_xhtml= {"xhtml": "http://www.w3.org/1999/xhtml"}
-    self.image_src_list  =  dom.xpath('/xhtml:html/xhtml:body//xhtml:img/@src', namespaces=ns_xhtml)
+    self.image_src_list  =  dom.xpath('/xhtml:html/xhtml:body//xhtml:img/@src', namespaces=self.namespaces)
 
   def get_image_src_list(self):
     return self.image_src_list
 
   def extract_a_source(self,dom):
-    ns_xhtml= {"xhtml": "http://www.w3.org/1999/xhtml"}
-    self.a_href_list  =  dom.xpath('/xhtml:html/xhtml:body//xhtml:a/@href', namespaces=ns_xhtml)
+    self.a_href_list  =  dom.xpath('/xhtml:html/xhtml:body//xhtml:a/@href', namespaces=self.namespaces)
 
   def get_a_href_list(self):
     return self.a_href_list
-
  
   def process_dom(self, dom):
     self.fix_column_width(dom)
     self.extract_img_source(dom)
+    self.xxx(dom)
     newdom = self.extract_content(dom)
     result = ET.tostring(newdom, pretty_print=True, encoding="UTF-8").decode('utf-8')
     return result
@@ -378,8 +498,8 @@ class ConfluenceFixes:
     return result 
 
   def process_file(self, filename):
-    dom    = ET.parse(xml_filename)
-    xhtml   = dom.getroot()
+    dom    = ET.parse(filename)
+    xhtml  = dom.getroot()
     result = self.process_dom(xhtml)
     return result 
 
