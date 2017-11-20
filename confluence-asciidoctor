@@ -739,6 +739,7 @@ class Confluence(object):
 
         if parent_page_title is None and relpath != "":
             parent_page_title = self.relpath_to_lookup_name(relpath)
+            parent_page_title= os.path.basename(parent_page_title)
 
         ancestor_id = self.get_cached_ancestor_id(parent_page_title)
 
