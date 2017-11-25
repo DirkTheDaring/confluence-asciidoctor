@@ -306,7 +306,7 @@ class ConfluenceRestAPI(object):
 
         if not os.path.exists(filepath):
             print("Attachment File does not exist: "+filepath)
-            return 
+            return
         json_result = self.list_attachments(id)
 
         for result in json_result['results']:
@@ -398,7 +398,7 @@ class ConfluenceFixes:
 #        </xsl:template>
 
 
-  # This gives the same result as the "-s" switch in asciidoctor
+  # This gives the same result as the "-s" switch in asciidoctor for xhtml5
   def extract_content_div_xsl(self):
     return '''<xsl:stylesheet
         version="1.0"
@@ -527,11 +527,10 @@ class ConfluenceFixes:
 
 
 
+class SimpleConfiguration:
+    def __init__(self,config_name,config_is_dir=False):
+        self.configuration = self.init(config_name,config_is_dir=config_is_dir)
 
-class Configuration(object):
-    def __init__(self):
-        pass
-        
     def find_root(self, directory, config_name, config_is_dir=True):
         while True:
             filepath = os.path.join(directory,config_name)
@@ -547,66 +546,77 @@ class Configuration(object):
             directory = os.path.normpath(os.path.join(directory, os.pardir))
 
     def get_relative_dir(self, cwd,config_root):
+
+        if config_root == "":
+            return ""
+
         if config_root == cwd:
-            rel = ""
-        else:
-            rel  = cwd[(len(config_root)+1):]
-        return rel
+            return  ""
+        
+        return cwd[(len(config_root)+1):]
 
-    def read_netrc(self, config_root, netrc_file='.netrc'):
-        netrc_filepath = os.path.join(config_root, netrc_file)
-        # Either '.netrc' in config_root or in HOME of user
-        if os.path.isfile(netrc_filepath):
-            netRC =  netrc.netrc(netrc_filepath)
-        else:
-            netRC =  netrc.netrc() 
-        return netRC
+    def get_working_directory(self,working_directory):
 
-    def parse_config(self,config_filepath):
-        return parser
-
-    def init(self, config_name, netrc_filename='.netrc', working_directory=None):
         if working_directory is None:
-            working_directory = os.getcwd()
+            return os.getcwd()
 
-        self.WORKING_DIRECTORY  = working_directory
-        self.CONFIG_ROOT        = self.find_root(working_directory,config_name,config_is_dir=False)
+        if not os.path.isdir(working_directory):
+            return ''
 
-        self.RELATIVE_DIR       = self.get_relative_dir(working_directory,self.CONFIG_ROOT)
+        return working_directory
 
-        config_filepath         = os.path.join(self.CONFIG_ROOT,config_name)
+    def get_config_filepath(self,config_root,config_name):
+        if config_root == '':
+            return ''
+        return os.path.join(config_root,config_name)
 
-        self.CONFIG_PARSER      = ConfigParser()
-        self.CONFIG_FILEPATH    = self.CONFIG_PARSER.read(config_filepath)
-        
-        self.NETRC              = self.read_netrc(self.CONFIG_ROOT, netrc_filename)
+    def init(self, config_name, working_directory=None,config_is_dir=False):
 
+        working_directory   = self.get_working_directory(working_directory)
+        config_root         = self.find_root(working_directory,config_name,config_is_dir)
+        relative_dir        = self.get_relative_dir(working_directory,config_root)
+        config_filepath     = self.get_config_filepath(config_root,config_name)
 
-class ToolConfiguration(Configuration):
-    def __init__(self):
-        pass
+        configuration = {
+            'working_directory':    working_directory,
+            'config_root':          config_root,
+            'relative_dir':         relative_dir,
+            'config_filepath':      config_filepath
+        }
+        return configuration
 
-    def get_option_value(self,section_name, option, default_value):
-        if self.CONFIG_PARSER.has_option(section_name, option):
-            return self.CONFIG_PARSER.get(section_name, option)
-        return default_value
-        
-    def run(self, config_name, section_name='default'):
-        self.init(config_name)
+class NETRC:
 
-        self.BASE_URL =  self.get_option_value(section_name, 'base_url',  'http://localhost:8080')
-        self.SPACE_KEY=  self.get_option_value(section_name, 'space_key', '')
-
-        result          = urlparse(self.BASE_URL)
-        self.HOSTNAME   = result.netloc.split(":")[0]
-        result          = self.NETRC.authenticators(self.HOSTNAME)
-        if result is None:
-            self.LOGIN=""
-            self.ACCOUNT=""
-            self.PASSWORD=""
+    def __init__(self,filepath):
+        if os.path.isfile(filepath):
+            self.netRC = netrc.netrc(filepath)
         else:
-            self.LOGIN, self.ACCOUNT, self.PASSWORD  = result
-        return 0
+            self.netRC = None
+
+    def get_entry(self,hostname):
+        if self.netRC is None:
+            return (None,None,None)
+        return self.netRC.authenticators(hostname)
+
+class ToolConfiguration2:
+
+    def merge(self,filepath,configuration_default):
+
+        z = configuration_default.copy()
+
+        configParser= ConfigParser()
+        config      = configParser.read(filepath)
+
+        for section_name in configParser.sections():
+            hash={}
+            source = configParser[section_name]
+            for option in configParser.options(section_name):
+                hash[option] = source[option]
+            z[section_name] = hash    
+
+        return z
+
+
 
 class ShellCmd(object):
 
@@ -632,15 +642,37 @@ class ShellCmd(object):
         self.exit_code  = proc.wait()
         return content
 
+configuration_default = {
+    'default': {
+        'base_url': 'http://127.0.0.1:8080',
+        'space_key': ''
+    }
+}
+
 
 class Confluence(object):
     def __init__(self):
-        self.config = ToolConfiguration()
-        result = self.config.run(".confluence-asciidoctor")
-       
-        basic_auth  = self.config.LOGIN + ":" + self.config.PASSWORD
-        base_url    = self.config.BASE_URL
-        space_key   = self.config.SPACE_KEY
+
+        config_default = SimpleConfiguration('.confluence-asciidoctor')
+        config = ToolConfiguration2().merge(
+            config_default.configuration['config_filepath'],
+            configuration_default)
+
+        base_url  = config['default']['base_url']
+        space_key = config['default']['space_key']
+
+        result          = urlparse(base_url)
+        hostname        = result.netloc.split(":")[0]
+
+        netrcx = SimpleConfiguration('.netrc')
+        config_filepath = netrcx.configuration['config_filepath']
+        LOGIN,ACCOUNT,PASSWORD = NETRC(config_filepath).get_entry(hostname)
+
+        basic_auth  = LOGIN + ":" + PASSWORD
+
+        self.config = config_default.configuration
+        self.netrcx = netrcx.configuration
+        self.HOSTNAME = hostname
 
         self.http   = HTTP(basic_auth)
         self.c      = ConfluenceRestAPI(self.http, base_url,space_key)
@@ -754,10 +786,10 @@ class Confluence(object):
         title   = self.filename_to_title(filename)
         abspath = os.path.dirname(os.path.abspath(filename))
 
-        if abspath == self.config.CONFIG_ROOT:
+        if abspath == self.config['config_root']:  #CONFIG_ROOT:
             relpath = ""
         else:
-            relpath = abspath[(len(self.config.CONFIG_ROOT)+1):]
+            relpath = abspath[(len(self.config['config_root'])+1):]
 
         if parent_page_title is None and relpath != "":
             parent_page_title = self.relpath_to_lookup_name(relpath)
@@ -765,7 +797,7 @@ class Confluence(object):
 
         ancestor_id = self.get_cached_ancestor_id(parent_page_title)
 
-        print("Publishing '"+title+"' to '"+self.config.HOSTNAME+"' under page '"+parent_page_title+"'")
+        print("Publishing '"+title+"' to '"+self.HOSTNAME+"' under page '"+parent_page_title+"'")
 
         xhtml   = self.read_from_asciidoctor(filename)
 
