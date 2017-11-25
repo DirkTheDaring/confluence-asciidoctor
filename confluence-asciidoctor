@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # FIXME: IOError if  .netrc  is missing
 # FIXME: urllib2.Error if http is used and server tries to redirect to https
 # FIXME: proxy handling does not exist, which is a MUST in a corporate environment
@@ -20,6 +20,12 @@ elif PYTHON_VERSION == 2:
     from urllib         import urlencode
     from urlparse       import urlparse
     import base64
+    from poster.encode        import multipart_encode
+    from poster.streaminghttp import register_openers
+    from poster.encode        import gen_boundary
+    from poster.encode        import get_headers
+    from poster.encode        import MultipartParam
+    import mimetypes
 
 import json
 import os
@@ -31,12 +37,6 @@ import lxml.etree as ET
 
 from io             import StringIO
 
-from poster.encode        import multipart_encode
-from poster.streaminghttp import register_openers
-from poster.encode        import gen_boundary
-from poster.encode        import get_headers
-from poster.encode        import MultipartParam
-import mimetypes
 # do not raise exceptions on these return codes
 
 if PYTHON_VERSION == 2:
@@ -59,7 +59,6 @@ if PYTHON_VERSION == 2:
     def add_headers(self, request, headers=None):
         request.add_header('Authorization', 'Basic %s' % self.basic_auth)   
         request.add_header('Content-Type','application/json')
-
         if headers is None:
             return
         # will overwrite alread existing key/value pair if key name collides
@@ -93,6 +92,62 @@ if PYTHON_VERSION == 2:
         response = urllib2.urlopen(request)            
         return self.handle_response(response)
 
+    @classmethod
+    def from_params(cls, params):
+
+        if hasattr(params, 'items'):
+            params = params.items()
+        retval = []
+
+        for item in params:
+            if isinstance(item, MultipartParam):
+               retval.append(item)
+               continue
+
+            name, value = item
+            if hasattr(value, 'read'):
+               # Looks like a file object
+                filename = getattr(value, 'name', None)
+                filename = os.path.basename(filename)
+                if filename is not None:
+                    filetype = mimetypes.guess_type(filename)[0]
+                else:
+                    filetype = None
+
+                retval.append(MultipartParam(name=name, filename=filename,
+                    filetype=filetype, fileobj=value))
+            else:
+                retval.append(MultipartParam(name, value))
+
+        return retval
+
+
+    def multipart_encode(self,params,boundary=None):
+
+        if boundary is None:
+            boundary = gen_boundary()
+        else:
+            boundary = urllib.quote_plus(boundary)
+
+        headers = get_headers(params, boundary)
+        params =  self.from_params(params)
+
+        def yielder():
+            for param in params:
+                for block in param.iter_encode(boundary):
+                    yield block
+            yield "--%s--\r\n" % boundary
+
+        return yielder(), headers
+
+    def POST_FILE(self,url,headers,fields,filepath,field_name,filename=None):
+        f = open(filepath, 'rb')
+        fields[field_name]=f
+        data, headers = self.multipart_encode(fields)
+        result = self.POST(url,data,headers)
+        f.close()
+        return result
+
 
 elif PYTHON_VERSION == 3:
   class HTTP(object):
@@ -103,6 +158,15 @@ elif PYTHON_VERSION == 3:
         self.basic_auth = basic_auth
         self.headers    = urllib3.util.make_headers(basic_auth=basic_auth)
         self.headers['Content-Type']='application/json'
+
+    def add_headers(self,headers):
+        headers_new = urllib3.util.make_headers(basic_auth=self.basic_auth)
+        if headers is None:
+            return headers_new
+        # will overwrite alread existing key/value pair if key name collides
+        for key in headers.keys():
+            headers_new[key] = headers[key]
+        return headers_new
 
     def handle_response(self,response):
         if response.status != 200:
@@ -121,6 +185,23 @@ elif PYTHON_VERSION == 3:
     def PUT(self,url,data):
         response    = self.http.request('PUT', url, headers=self.headers, body=data )
         return self.handle_response(response)
+
+    def POST_MULTIPART(self,url,headers,fields):
+        response = self.http.request('POST',url,headers=headers,fields=fields)
+        return self.handle_response(response)
+
+    def POST_FILE(self,url,headers,fields,filepath,field_name,filename=None):
+        headers = self.add_headers(headers)
+
+        with open(filepath,"rb") as fp:
+            data = fp.read()
+
+        if filename is None:
+            filename = os.path.basename(filepath)
+
+        fields[field_name]=(filename,data)
+
+        return self.POST_MULTIPART(url,fields=fields,headers=headers)
 
 
 class ConfluenceRestAPI(object):
@@ -144,11 +225,6 @@ class ConfluenceRestAPI(object):
     def POST_JSON(self,url,json_dict):
         encoded_data = json.dumps(json_dict)
         result = self.http.POST(url,encoded_data)
-        return self.handle_json(result)
-
-    def POST_FILE(self,url,encoded_data,headers):
-        #encoded_data = json.dumps(json_dict)
-        result = self.http.POST(url,encoded_data,headers)
         return self.handle_json(result)
 
     def PUT_JSON(self,url,json_dict):
@@ -210,59 +286,23 @@ class ConfluenceRestAPI(object):
         url = self.base_url + '/rest/api/content/'+id+"/child/attachment"
         return self.GET_JSON(url)
 
-
-   
-    @classmethod
-    def from_params2(cls, params):
-
-        if hasattr(params, 'items'):
-            params = params.items()
-        retval = []
-
-        for item in params:
-            if isinstance(item, MultipartParam):
-               retval.append(item)
-               continue
-
-            name, value = item
-            if hasattr(value, 'read'):
-               # Looks like a file object
-                filename = getattr(value, 'name', None)
-                filename = os.path.basename(filename)
-                if filename is not None:
-                    filetype = mimetypes.guess_type(filename)[0]
-                else:
-                    filetype = None
-   
-                retval.append(MultipartParam(name=name, filename=filename,
-                    filetype=filetype, fileobj=value))
-            else:
-                retval.append(MultipartParam(name, value))
-
-        return retval
-
-    def multipart_encode2(self,params,boundary=None):
-
-        if boundary is None:
-            boundary = gen_boundary()
-        else:
-            boundary = urllib.quote_plus(boundary)
-
-        headers = get_headers(params, boundary)
-        params =  self.from_params2(params)
-
-        
-        def yielder():
-            for param in params:
-                for block in param.iter_encode(boundary):
-                    yield block
-            yield "--%s--\r\n" % boundary
-
-        return yielder(), headers
-    
     # https://community.atlassian.com/t5/Confluence-questions/How-to-post-attachments-to-confluence-page/qaq-p/214853
     # https://community.atlassian.com/t5/Confluence-questions/Can-i-update-file-attachments-using-the-rest-api/qaq-p/308327
-    def attach_file_to_page(self,filepath,id):
+
+    def attach_file(self,page_id,filename,comment=""):
+        url = self.base_url + '/rest/api/content/'+page_id+"/child/attachment"
+        #url  = "http://127.0.0.1:8080" + '/rest/api/content/'+page_id+"/child/attachment"
+        headers={
+            'X-Atlassian-Token': 'nocheck'
+        }
+        fields = {
+            'comment':  comment
+        }
+        result = self.http.POST_FILE(url,headers,fields,filename,'file')
+        return self.handle_json(result)   
+
+   
+    def attach_file_to_page(self,id,filepath,comment=""):
 
         if not os.path.exists(filepath):
             print("Attachment File does not exist: "+filepath)
@@ -271,29 +311,11 @@ class ConfluenceRestAPI(object):
 
         for result in json_result['results']:
             existing_filename = result['title']
-            #print(existing_filename)
             if os.path.basename(filepath) == existing_filename:
-            #if filepath == existing_filename:
                 print("Attachment already exists(skipped): "+ str(existing_filename))
                 return
-
         print("Uploading attachment: "+filepath)
-        url  = self.base_url + '/rest/api/content/'+id+"/child/attachment"
-        #url  = "http://127.0.0.1:7039"+ '/rest/api/content/'+id+"/child/attachment"
-
-        f = open(filepath, 'r')
-        filename = f.name
-        params = {  "file": f, 
-                    "comment": "This is a test",
-                    "filename": "bla"
-                }
-
-        #data, headers = multipart_encode(params)
-        data, headers = self.multipart_encode2(params)
-        
-        headers["X-Atlassian-Token"]= "nocheck"
-        self.POST_FILE(url,data,headers)
-        f.close()
+        return self.attach_file(id,filepath,comment)
 
 class ConfluenceFixes:
 
@@ -753,8 +775,7 @@ class Confluence(object):
         id = result["id"]
 
         for img in fix.get_image_src_list():
-            self.c.attach_file_to_page(img,id)
-            #self.c.attach_file_to_page('README.txt',id)
+            self.c.attach_file_to_page(id,img,"initial")
 
     def run(self):
         parsed_args = self.parse_cmdline()
