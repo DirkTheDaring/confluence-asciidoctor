@@ -13,6 +13,7 @@ if PYTHON_VERSION == 3:
     from configparser   import ConfigParser
     from urllib.parse   import urlencode
     from urllib.parse   import urlparse
+    from urllib.parse   import unquote
 
 elif PYTHON_VERSION == 2:
     import urllib2
@@ -154,10 +155,23 @@ elif PYTHON_VERSION == 3:
 
     def __init__(self,basic_auth=None):
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-        self.http       = urllib3.PoolManager()
+
+        proxy_url = self.get_proxy_url()
+        if proxy_url is None:
+            self.http       = urllib3.PoolManager()
+        else:
+            self.http       = urllib3.ProxyManager(proxy_url)
+
         self.basic_auth = basic_auth
         self.headers    = urllib3.util.make_headers(basic_auth=basic_auth)
         self.headers['Content-Type']='application/json'
+
+    def get_proxy_url(self):
+        for NAME in ['HTTPS_PROXY','https_proxy','HTTP_PROXY','http_proxy']:
+            value = os.environ.get(NAME)
+            if value is not None:
+                return value
+        return value
 
     def add_headers(self,headers):
         headers_new = urllib3.util.make_headers(basic_auth=self.basic_auth)
@@ -486,6 +500,7 @@ class ConfluenceFixes:
         src = img.attrib['src']
         # Only basename 
         src = os.path.basename(src)
+        src = unquote(src)
 
         parent = img.getparent()
         if src.endswith('pptx') or src.endswith('pdf'):
@@ -495,7 +510,13 @@ class ConfluenceFixes:
         parent.replace(img,new_ac_element)
 
   def extract_img_source(self,dom):
-    self.image_src_list  =  dom.xpath('/xhtml:html/xhtml:body//xhtml:img/@src', namespaces=self.namespaces)
+    image_src_list  =  dom.xpath('/xhtml:html/xhtml:body//xhtml:img/@src', namespaces=self.namespaces)
+
+    image_src_list2 = []
+    for img in image_src_list:
+        img2 = unquote(img)
+        image_src_list2.append(img2)
+    self.image_src_list = image_src_list2
 
   def get_image_src_list(self):
     return self.image_src_list
@@ -528,8 +549,8 @@ class ConfluenceFixes:
 
 
 class SimpleConfiguration:
-    def __init__(self,config_name,config_is_dir=False):
-        self.configuration = self.init(config_name,config_is_dir=config_is_dir)
+    def __init__(self,config_name,config_is_dir=False,working_directory=None):
+        self.configuration = self.init(config_name,config_is_dir=config_is_dir, working_directory=working_directory)
 
     def find_root(self, directory, config_name, config_is_dir=True):
         while True:
@@ -666,6 +687,10 @@ class Confluence(object):
 
         netrcx = SimpleConfiguration('.netrc')
         config_filepath = netrcx.configuration['config_filepath']
+        if config_filepath == "":
+            netrcx = SimpleConfiguration('.netrc', working_directory=os.environ['HOME'])
+            config_filepath = netrcx.configuration['config_filepath']
+
         LOGIN,ACCOUNT,PASSWORD = NETRC(config_filepath).get_entry(hostname)
 
         basic_auth  = LOGIN + ":" + PASSWORD
