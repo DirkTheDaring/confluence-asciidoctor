@@ -628,18 +628,6 @@ class ToolConfiguration2:
         configParser= ConfigParser()
         config      = configParser.read(filepath)
 
-#        if PYTHON_VERSION == 4:
-#
-#            for section_name in configParser.sections():
-#                hash={}
-#                source = configParser[section_name]
-#                for option in configParser.options(section_name):
-#                    hash[option] = source[option]
-#                z[section_name] = hash    
-#
-##        elif PYTHON_VERSION == 2:
-#        else:
-
         for section_name in configParser.sections():
             hash={}
             for option in configParser.options(section_name):
