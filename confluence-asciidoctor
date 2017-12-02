@@ -338,8 +338,8 @@ class ConfluenceFixes:
     self.a_href_list = []
     self.namespaces = {
         "xhtml":    "http://www.w3.org/1999/xhtml",
-	"ac":       "http://www.atlassian.com/schema/confluence/4/ac/",
-	"ri":       "http://www.atlassian.com/schema/confluence/4/ri/"
+        "ac":       "http://www.atlassian.com/schema/confluence/4/ac/",
+        "ri":       "http://www.atlassian.com/schema/confluence/4/ri/"
     }
 
   def find_width_value(self,style):
@@ -418,8 +418,8 @@ class ConfluenceFixes:
         version="1.0"
         xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
         xmlns:x="http://www.w3.org/1999/xhtml"
-	xmlns:ac="http://www.atlassian.com/schema/confluence/4/ac/"
-	xmlns:ri="http://www.atlassian.com/schema/confluence/4/ri/"
+        xmlns:ac="http://www.atlassian.com/schema/confluence/4/ac/"
+        xmlns:ri="http://www.atlassian.com/schema/confluence/4/ri/"
         exclude-result-prefixes="x"
         >
 
@@ -628,13 +628,23 @@ class ToolConfiguration2:
         configParser= ConfigParser()
         config      = configParser.read(filepath)
 
+#        if PYTHON_VERSION == 4:
+#
+#            for section_name in configParser.sections():
+#                hash={}
+#                source = configParser[section_name]
+#                for option in configParser.options(section_name):
+#                    hash[option] = source[option]
+#                z[section_name] = hash    
+#
+##        elif PYTHON_VERSION == 2:
+#        else:
+
         for section_name in configParser.sections():
             hash={}
-            source = configParser[section_name]
             for option in configParser.options(section_name):
-                hash[option] = source[option]
-            z[section_name] = hash    
-
+                hash[option]=configParser.get(section_name,option)
+            z[section_name] = hash
         return z
 
 
@@ -750,7 +760,7 @@ class Confluence(object):
                         stack.append(result)
                     result = ""
                     continue
-	    
+
             result = result + c
 
         stack.append(result)
