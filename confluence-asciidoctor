@@ -4,6 +4,8 @@
 # FIXME: proxy handling does not exist, which is a MUST in a corporate environment
 # FIXME: putting directories as publishing arguments --> should be ignored or fail?
 # FIXME: publishing a file on the same level as .confluence-asciidoctor
+# FIXME: Multilevel argpars
+
 
 import sys
 PYTHON_VERSION=sys.version_info[0]
@@ -185,6 +187,8 @@ elif PYTHON_VERSION == 3:
     def handle_response(self,response):
         if response.status != 200:
             print(response.status)
+            print(vars(response))
+            sys.exit(1)
             return None
         return response.data.decode("utf-8", "strict")
 
@@ -256,6 +260,10 @@ class ConfluenceRestAPI(object):
         url     = self.build_url({'spaceKey':self.space_key,'expand':expand,'title':title})
         return self.GET_JSON(url)
 
+    def dump(self, id):
+        url =  self.base_url + '/rest/api/content/' + id + '?expand=body.storage'
+        return self.GET_JSON(url)
+
     def merge_dict(self, x, y):
         z = x.copy()
         z.update(y)
@@ -286,12 +294,11 @@ class ConfluenceRestAPI(object):
             'body'   : {'storage':{'value': value, 'representation' : 'storage'}},
             'version': {'number': version}
         }
-        if ancestor_id is not None:
-            dict2= { 'ancestors':[{'type':'page','id': ancestor_id}] }
-            # Merge dict
-            #dict = { **dict, **dict2}
-            dict = self.merge_dict(dict,dict2)
-        #print(dict)
+
+#        if ancestor_id is not None:
+#            dict2= { 'ancestors':[{'type':'page','id': ancestor_id}] }
+#            # Merge dict
+#            dict = self.merge_dict(dict,dict2)
         url     = self.base_url + '/rest/api/content/'+id
         return self.PUT_JSON(url,dict)
 
@@ -670,7 +677,7 @@ configuration_default = {
 
 
 class Confluence(object):
-    def __init__(self):
+    def __init__(self, netRC):
 
         config_default = SimpleConfiguration('.confluence-asciidoctor')
         config = ToolConfiguration2().merge(
@@ -683,21 +690,17 @@ class Confluence(object):
         result          = urlparse(base_url)
         hostname        = result.netloc.split(":")[0]
 
-        netrcx = SimpleConfiguration('.netrc')
-        config_filepath = netrcx.configuration['config_filepath']
-        if config_filepath == "":
-            netrcx = SimpleConfiguration('.netrc', working_directory=os.environ['HOME'])
-            config_filepath = netrcx.configuration['config_filepath']
+        array = netRC.authenticators(hostname)
+        if array is None:
+            print("hostname not found: "+hostname)
+            exit(2)
 
-        LOGIN,ACCOUNT,PASSWORD = NETRC(config_filepath).get_entry(hostname)
 
-        basic_auth  = LOGIN + ":" + PASSWORD
-
-        self.config = config_default.configuration
-        self.netrcx = netrcx.configuration
+        self.config   = config_default.configuration
         self.HOSTNAME = hostname
-
-        self.http   = HTTP(basic_auth)
+        
+        login,account,password = array
+        self.http   = HTTP(login + ":" + password)
         self.c      = ConfluenceRestAPI(self.http, base_url,space_key)
 
         self.cache  = {}
@@ -710,6 +713,7 @@ class Confluence(object):
         parser = argparse.ArgumentParser("confluence-ascii")
         parser.add_argument('file', metavar='file', nargs='+', help='file')
         parser.add_argument('-p', '--parent-page-title', metavar='parent_page_title', help='title of the parent page')
+        parser.add_argument('-d', '--dump', help='dump page content')
         parsed_args = parser.parse_args()
         return parsed_args
 
@@ -799,7 +803,6 @@ class Confluence(object):
         else:
             id      = self.get_element_by_path("results[0].id",json_result)
             version = self.get_element_by_path("results[0].version.number",json_result)
-           
             version = version + 1 
             json_result2 = self.c.update_page(id,version,title,content,ancestor_id)
 
@@ -827,18 +830,75 @@ class Confluence(object):
         fix = ConfluenceFixes()
         xhtml2 = fix.process_text(xhtml)
         result  = self.publish(title,xhtml2,ancestor_id)
+        print(result)
         id = result["id"]
 
         for img in fix.get_image_src_list():
             self.c.attach_file_to_page(id,img,"initial")
 
+    def dump(self,filename, page_name):
+      json_data = self.c.version(page_name)
+      ancestor_id = self.get_element_by_path("results[0].id",json_data)
+      result = self.c.dump(ancestor_id)
+      body  = self.get_element_by_path("body.storage.value", result)
+
+      print(body)
+
+
     def run(self):
         parsed_args = self.parse_cmdline()
+        #print(parsed_args)
+        if 'dump' in parsed_args:
+          for filename in parsed_args.file:
+            self.dump(filename,parsed_args.dump)
+          return 
+
         for filename in parsed_args.file:
             self.process_file(filename,parsed_args.parent_page_title)
 
 
+def load_netrc():
+  home_directory = os.environ['HOME']
+  filepath = os.path.join(home_directory, '.netrc' )
+  if not os.path.isfile(filepath):
+    print("Not found: "+filepath)
+    exit(1)
+  return netrc.netrc(filepath)
+
+
 if __name__ == "__main__":
-    confluence = Confluence()
-    confluence.run()
+    netRC      = load_netrc()
+    confluence = Confluence(netRC)
+  # confluence.run()
+    parser = argparse.ArgumentParser( "main" )
+    # no arguments given, print help
+    if len(sys.argv) < 2:
+        parser.print_help()
+        sys.exit(0)
+
+    parser.set_defaults(which='all')
+
+    # "dest" parameter helps to determine which subparser was used later on in namespace result (stored in 'command')
+    subparsers = parser.add_subparsers(help='commands', dest='command')
+
+    # Upload page
+    parser_upload   = subparsers.add_parser('upload', aliases=['up'], help='upload help')
+    parser_upload.add_argument('-p', '--parent-page-title', metavar='parent_page_title', help='title of the parent page')
+    parser_upload.add_argument('file', metavar='file', nargs='+', help='file')
+
+    # Download Page
+    parser_download = subparsers.add_parser('download', aliases=['do'], help='download help')
+    parser_download.add_argument('page_title', help='file')
+
+    parsed_args = parser.parse_args()
+    #print(parsed_args)
+    if parsed_args.command in ['download', 'do']:
+        #confluence.dump(parsed_args.filename,parsed_args.dump)
+        confluence.dump("",parsed_args.page_title)
+
+    if parsed_args.command in ['upload', 'ul']:
+        for filename in parsed_args.file:
+            confluence.process_file(filename,parsed_args.parent_page_title)
+
+
 

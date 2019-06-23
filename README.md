@@ -4,9 +4,12 @@ asciidoctor can be found here: http://asciidoctor.org/
 
 # Install
 sudo gem install asciidoctor
-dnf install python-lxml 
+# python2
+sudo dnf install python-lxml 
+
 pip install poster
 
-# Example
-confluence-asciidoctor -p "Minutes" meeting-03-11.txt
-
+# Example upload
+confluence-asciidoctor upload -p "Test" example.txt
+# Example download
+confluence-asciidoctor download "Minutes"

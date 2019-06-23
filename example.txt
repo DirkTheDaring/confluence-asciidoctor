@@ -1,0 +1,7 @@
+
+== A Heading made simple
+
+User <user@example.com>
+
+_Zen_ is the *art* of writing `plain text` with http://asciicotor.org[AsciiDoc]
+
