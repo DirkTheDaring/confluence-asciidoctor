@@ -10,3 +10,11 @@ _Zen_ is the *art* of writing `plain text` with http://asciidoctor.org[AsciiDoc]
 #!/usr/bin/python3
 print("Hello World!")
 ----
+
+== Next Section about bash
+
+[source,bash]
+----
+#!/bin/bash
+echo "Hello World!"
+----
