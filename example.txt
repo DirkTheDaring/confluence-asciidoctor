@@ -3,5 +3,10 @@
 
 User <user@example.com>
 
-_Zen_ is the *art* of writing `plain text` with http://asciicotor.org[AsciiDoc]
+_Zen_ is the *art* of writing `plain text` with http://asciidoctor.org[AsciiDoc]
 
+[source,python]
+----
+#!/usr/bin/python3
+print("Hello World!")
+----
