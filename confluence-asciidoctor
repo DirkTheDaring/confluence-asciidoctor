@@ -588,65 +588,54 @@ class ConfluenceFixes:
     result = self.process_dom(xhtml)
     return result 
 
-
-
 class SimpleConfiguration:
-    def __init__(self,config_name,config_is_dir=False,working_directory=None):
-        self.configuration = self.init(config_name,config_is_dir=config_is_dir, working_directory=working_directory)
 
-    def find_root(self, directory, config_name, config_is_dir=True):
-        while True:
-            filepath = os.path.join(directory,config_name)
+  # provide an abspath to the repo or a file in the repo 
+  def init(self, abspath):
 
-            if config_is_dir and os.path.isdir(filepath):
-                    return directory
-            elif os.path.isfile(filepath):
-                    return directory
+    config_dir = self.find_root_init(abspath, '.confluence-asciidoctor')
+    if config_dir is None:
+        return None
 
-            if directory == os.sep:
-                return ""
+    # The directory where the hidden .confluence-asciidoctor resides is the root_dir
+    root_dir = os.path.dirname(config_dir)
 
-            directory = os.path.normpath(os.path.join(directory, os.pardir))
+    config_file = os.path.join(config_dir, "config")
+    if not os.path.isfile(config_file):
+      return None
 
-    def get_relative_dir(self, cwd,config_root):
+    work_dir = os.getcwd()
 
-        if config_root == "":
-            return ""
+    configuration = {
+            'work_dir':    work_dir,      #  current working directory
+            'root_dir':    root_dir,      #  The root of the repo
+            'config_dir':  config_dir,    #  The path to the config directory
+            'config_file': config_file    #  path to the config file file
+    }
+    return configuration
 
-        if config_root == cwd:
-            return  ""
-        
-        return cwd[(len(config_root)+1):]
 
-    def get_working_directory(self,working_directory):
+  def find_root_init(self, abspath, config_dir):
+    # Check existence , if not try root dir
+    while not os.path.exists(abspath):
+      abspath = os.path.dirname(abspath)
+  
+    # If it is a file, use parent dir
+    if not os.path.isdir(abspath):
+       abspath = os.path.dirname(abspath)
+    
+    return self.find_root(abspath, config_dir )
+ 
+  
+  def find_root(self, dirpath, config_dir):
+    while dirpath != os.sep:
+      target_dir = os.path.join(dirpath, config_dir)
+      if os.path.isdir(target_dir):
+        return target_dir
+      dirpath =  os.path.dirname(dirpath)
+    return None
 
-        if working_directory is None:
-            return os.getcwd()
 
-        if not os.path.isdir(working_directory):
-            return ''
-
-        return working_directory
-
-    def get_config_filepath(self,config_root,config_name):
-        if config_root == '':
-            return ''
-        return os.path.join(config_root,config_name)
-
-    def init(self, config_name, working_directory=None,config_is_dir=False):
-
-        working_directory   = self.get_working_directory(working_directory)
-        config_root         = self.find_root(working_directory,config_name,config_is_dir)
-        relative_dir        = self.get_relative_dir(working_directory,config_root)
-        config_filepath     = self.get_config_filepath(config_root,config_name)
-
-        configuration = {
-            'working_directory':    working_directory,
-            'config_root':          config_root,
-            'relative_dir':         relative_dir,
-            'config_filepath':      config_filepath
-        }
-        return configuration
 
 class NETRC:
 
@@ -712,11 +701,10 @@ configuration_default = {
 
 
 class Confluence(object):
-    def __init__(self, netRC):
+    def __init__(self, netRC, config_default):
 
-        config_default = SimpleConfiguration('.confluence-asciidoctor')
         config = ToolConfiguration2().merge(
-            config_default.configuration['config_filepath'],
+            config_default['config_file'],
             configuration_default)
 
         base_url  = config['default']['base_url']
@@ -726,18 +714,17 @@ class Confluence(object):
         hostname        = result.netloc.split(":")[0]
 
         array = netRC.authenticators(hostname)
+
         if array is None:
             print("hostname not found: "+hostname)
             exit(2)
 
-
-        self.config   = config_default.configuration
+        #self.config   = config_default.configuration
         self.HOSTNAME = hostname
         
         login,account,password = array
         self.http   = HTTP(login + ":" + password)
         self.c      = ConfluenceRestAPI(self.http, base_url,space_key)
-
         self.cache  = {}
 
     def json_pretty_print(self,json_data):
@@ -847,10 +834,10 @@ class Confluence(object):
         title   = self.filename_to_title(filename)
         abspath = os.path.dirname(os.path.abspath(filename))
 
-        if abspath == self.config['config_root']:  #CONFIG_ROOT:
+        if abspath == self.config['root_dir']:  #CONFIG_ROOT:
             relpath = ""
         else:
-            relpath = abspath[(len(self.config['config_root'])+1):]
+            relpath = abspath[(len(self.config['root_dir'])+1):]
 
         if parent_page_title is None and relpath != "":
             parent_page_title = self.relpath_to_lookup_name(relpath)
@@ -882,6 +869,8 @@ class Confluence(object):
     def dump_xhtml(self,filename):
         xhtml   = self.read_from_asciidoctor(filename)
         print(xhtml)
+        if xhtml == "":
+            return 
         fix = ConfluenceFixes()
         xhtml2 = fix.process_text(xhtml)
         print(xhtml2)
@@ -908,8 +897,6 @@ def load_netrc():
 
 
 if __name__ == "__main__":
-    netRC      = load_netrc()
-    confluence = Confluence(netRC)
   # confluence.run()
     parser = argparse.ArgumentParser( "main" )
     # no arguments given, print help
@@ -923,7 +910,8 @@ if __name__ == "__main__":
     subparsers = parser.add_subparsers(help='commands', dest='command')
 
     # Upload page
-    parser_upload   = subparsers.add_parser('upload', aliases=['up'], help='upload help')
+    parser_upload = subparsers.add_parser('upload', aliases=['up'], help='upload help')
+
     parser_upload.add_argument('-p', '--parent-page-title', metavar='parent_page_title', help='title of the parent page')
     parser_upload.add_argument('file', metavar='file', nargs='+', help='file')
 
@@ -932,12 +920,26 @@ if __name__ == "__main__":
     parser_download.add_argument('page_title', help='page title')
 
     # Dump xhtml
+    parser_dump = subparsers.add_parser('dump', help='dump')
+    parser_dump.add_argument('page_title', help='page_title')
+
+    # Dump xhtml
     parser_dumpxhtml = subparsers.add_parser('dumpxhtml', help='dump xhtml')
     parser_dumpxhtml.add_argument('file', help='file')
 
-
     parsed_args = parser.parse_args()
+
     #print(parsed_args)
+    netRC      = load_netrc()
+    filepath = os.getcwd()
+    default_config = SimpleConfiguration().init(filepath)
+    if default_config is None:
+      print("No config found. confluence-asciidoctor init might be required")
+      exit(0)
+
+    #print(default_config)
+    confluence = Confluence(netRC,default_config)
+
     if parsed_args.command in ['download', 'do']:
         #confluence.dump(parsed_args.filename,parsed_args.dump)
         confluence.dump("",parsed_args.page_title)
@@ -949,5 +951,7 @@ if __name__ == "__main__":
     if parsed_args.command in ['dumpxhtml']:
         confluence.dump_xhtml(parsed_args.file)
 
+    if parsed_args.command in ['dump']:
+        confluence.dump("", parsed_args.page_title)
 
 
