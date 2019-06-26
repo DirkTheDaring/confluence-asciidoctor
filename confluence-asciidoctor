@@ -5,6 +5,7 @@
 
 
 import sys
+import re
 PYTHON_VERSION=sys.version_info[0]
 
 if PYTHON_VERSION == 3:
@@ -292,10 +293,11 @@ class ConfluenceRestAPI(object):
             'version': {'number': version}
         }
 
-#        if ancestor_id is not None:
-#            dict2= { 'ancestors':[{'type':'page','id': ancestor_id}] }
-#            # Merge dict
-#            dict = self.merge_dict(dict,dict2)
+        if ancestor_id is not None:
+          dict2= { 'ancestors':[{'type':'page','id': ancestor_id}] }
+          # Merge dict
+          dict = self.merge_dict(dict,dict2)
+
         url     = self.base_url + '/rest/api/content/'+id
         return self.PUT_JSON(url,dict)
 
@@ -707,6 +709,8 @@ class Confluence(object):
             config_default['config_file'],
             configuration_default)
 
+        self.config = config_default
+
         base_url  = config['default']['base_url']
         space_key = config['default']['space_key']
 
@@ -830,7 +834,7 @@ class Confluence(object):
 
         return json_result2 
 
-    def process_file(self, filename,parent_page_title=None):
+    def process_file(self, filename, parent_page_title=None):
         title   = self.filename_to_title(filename)
         abspath = os.path.dirname(os.path.abspath(filename))
 
@@ -909,11 +913,10 @@ if __name__ == "__main__":
     # "dest" parameter helps to determine which subparser was used later on in namespace result (stored in 'command')
     subparsers = parser.add_subparsers(help='commands', dest='command')
 
-    # Upload page
-    parser_upload = subparsers.add_parser('upload', aliases=['up'], help='upload help')
-
-    parser_upload.add_argument('-p', '--parent-page-title', metavar='parent_page_title', help='title of the parent page')
-    parser_upload.add_argument('file', metavar='file', nargs='+', help='file')
+    # Publish page
+    parser_publish = subparsers.add_parser('publish', aliases=['pu'], help='publish help')
+    parser_publish.add_argument('-p', '--parent-page-title', metavar='parent_page_title', help='title of the parent page')
+    parser_publish.add_argument('file', metavar='file', nargs='+', help='file')
 
     # Download Page
     parser_download = subparsers.add_parser('download', aliases=['do'], help='download help')
@@ -927,24 +930,45 @@ if __name__ == "__main__":
     parser_dumpxhtml = subparsers.add_parser('dumpxhtml', help='dump xhtml')
     parser_dumpxhtml.add_argument('file', help='file')
 
-    parsed_args = parser.parse_args()
+    # initialize environment  
+    parser_init = subparsers.add_parser('init', help='init')
+    parser_init.add_argument('--url', default='http://127.0.0.1/display/EXAMPLE',  help='url')
 
-    #print(parsed_args)
-    netRC      = load_netrc()
-    filepath = os.getcwd()
+    parsed_args    = parser.parse_args()
+    filepath       = os.getcwd()
+
+    if parsed_args.command in ['init']:
+      config_dir = os.path.join(filepath, ".confluence-asciidoctor")
+      if not os.path.exists(config_dir):
+          os.mkdir(config_dir)
+      config_file = os.path.join(config_dir, "config")
+
+      match = re.match(r'^(.*)?/display/([^/]+)', parsed_args.url)
+      if match:
+          base_url, space_key = match.groups()
+      else:
+        print("Could not match url: " + url)
+        exit(1)
+ 
+      if not os.path.exists(config_file):
+        f = open(config_file, "w")
+        f.write("[default]\nbase_url={0}\nspace_key={1}\n".format(base_url,space_key))
+        f.close()
+      exit(0)
+
     default_config = SimpleConfiguration().init(filepath)
+
     if default_config is None:
       print("No config found. confluence-asciidoctor init might be required")
       exit(0)
 
-    #print(default_config)
+    netRC      = load_netrc()
     confluence = Confluence(netRC,default_config)
 
     if parsed_args.command in ['download', 'do']:
-        #confluence.dump(parsed_args.filename,parsed_args.dump)
         confluence.dump("",parsed_args.page_title)
 
-    if parsed_args.command in ['upload', 'ul']:
+    if parsed_args.command in ['publish', 'pu']:
         for filename in parsed_args.file:
             confluence.process_file(filename,parsed_args.parent_page_title)
 
@@ -953,5 +977,4 @@ if __name__ == "__main__":
 
     if parsed_args.command in ['dump']:
         confluence.dump("", parsed_args.page_title)
-
 
