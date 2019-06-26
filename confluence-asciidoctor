@@ -745,7 +745,7 @@ class Confluence(object):
 
     def filename_to_title(self, name):
         basename= os.path.basename(name)
-        title = ('.').join(basename.split('.')[:-1])  # Remove .txt extension
+        title = ('.').join(basename.split('.')[:-1])  # Remove .txt or .xml extension
         if title == "":
             title = basename
         return title
@@ -851,15 +851,23 @@ class Confluence(object):
 
         print("Publishing '"+title+"' to '"+self.HOSTNAME+"' under page '"+parent_page_title+"'")
 
-        xhtml   = self.read_from_asciidoctor(filename)
+        fix = None
+        if filename.endswith(".txt"):
+            xhtml   = self.read_from_asciidoctor(filename)
+            fix = ConfluenceFixes()
+            xhtml2 = fix.process_text(xhtml)
+            xml = xhtml2
+        if filename.endswith(".xml"):
+            with open(filename) as myfile:
+                xml = myfile.read()
 
-        fix = ConfluenceFixes()
-        xhtml2 = fix.process_text(xhtml)
-        result  = self.publish(title,xhtml2,ancestor_id)
+
+        result  = self.publish(title,xml,ancestor_id)
         #print(result)
         id = result["id"]
 
-        for img in fix.get_image_src_list():
+        if fix:
+          for img in fix.get_image_src_list():
             self.c.attach_file_to_page(id,img,"initial")
 
     def dump(self,filename, page_name):
