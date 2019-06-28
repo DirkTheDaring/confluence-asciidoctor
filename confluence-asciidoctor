@@ -569,13 +569,15 @@ class ConfluenceFixes:
   def get_a_href_list(self):
     return self.a_href_list
  
-  def process_asciidoctor_dom(self, dom):
+  def process_asciidoctor_dom(self, dom, code_theme='Confluence', code_title=''):
     self.fix_column_width(dom)
     self.extract_img_source(dom)
     self.xxx(dom)
 
     newdom1 = self.extract_content(dom)
-    newdom2 = self.transform_code_section(newdom1)
+
+    code_theme = parsed_args.code_theme
+    newdom2 = self.transform_code_section(newdom1,code_theme,code_title)
     elements = newdom2.xpath("//ac:parameter[@ac:name='language']", namespaces=self.namespaces)
     for element in elements:
       value = element.text.lower()
@@ -588,9 +590,9 @@ class ConfluenceFixes:
     result = ET.tostring(newdom2, pretty_print=True, encoding="UTF-8").decode('utf-8')
     return result
 
-  def process_asciidoctor_xml(self,xhtml_textstring):
+  def process_asciidoctor_xml(self,xhtml_textstring,code_theme='Confluence',code_title=''):
     dom     = ET.XML(xhtml_textstring)
-    result  = self.process_asciidoctor_dom(dom)
+    result  = self.process_asciidoctor_dom(dom,code_theme, code_title)
     return result 
 
   def process_confluence_xml(self,xhtml_textstring):
@@ -928,9 +930,7 @@ def load_netrc():
     exit(1)
   return netrc.netrc(filepath)
 
-
-if __name__ == "__main__":
-  # confluence.run()
+def parse_cmdline():
     parser = argparse.ArgumentParser( "main" )
     # no arguments given, print help
     if len(sys.argv) < 2:
@@ -945,6 +945,7 @@ if __name__ == "__main__":
     # Publish page
     parser_publish = subparsers.add_parser('publish', aliases=['pu'], help='publish help')
     parser_publish.add_argument('-p', '--parent-page-title', metavar='parent_page_title', help='title of the parent page')
+    parser_publish.add_argument('--code-theme', metavar='code_theme', default='Confluence', help='code default color theme')
     parser_publish.add_argument('file', metavar='file', nargs='+', help='file')
 
     # Download Page
@@ -957,6 +958,7 @@ if __name__ == "__main__":
 
     # Dump xhtml
     parser_dumpxhtml = subparsers.add_parser('dumpxhtml', help='dump xhtml')
+    parser_dumpxhtml.add_argument('--code-theme', metavar='code_theme', default='Confluence', help='code default color theme')
     parser_dumpxhtml.add_argument('file', help='file')
 
     # initialize environment  
@@ -964,9 +966,24 @@ if __name__ == "__main__":
     parser_init.add_argument('--url', default='http://127.0.0.1/display/EXAMPLE',  help='url')
 
     parsed_args    = parser.parse_args()
+
+    # make command canonical
+
+    if parsed_args.command == 'do':
+        parsed_args.command = 'download'
+    elif parsed_args.command == 'pu':
+        parsed_args.command = 'publish'
+
+
+    return parsed_args
+
+
+if __name__ == "__main__":
+
+    parsed_args    = parse_cmdline()
     filepath       = os.getcwd()
 
-    if parsed_args.command in ['init']:
+    if parsed_args.command == 'init':
       config_dir = os.path.join(filepath, ".confluence-asciidoctor")
       if not os.path.exists(config_dir):
           os.mkdir(config_dir)
@@ -994,16 +1011,16 @@ if __name__ == "__main__":
     netRC      = load_netrc()
     confluence = Confluence(netRC,default_config)
 
-    if parsed_args.command in ['download', 'do']:
+    if parsed_args.command == 'download':
         confluence.dump("",parsed_args.page_title)
 
-    if parsed_args.command in ['publish', 'pu']:
+    if parsed_args.command == 'publish':
         for filename in parsed_args.file:
             confluence.process_file(filename,parsed_args.parent_page_title)
 
-    if parsed_args.command in ['dumpxhtml']:
+    if parsed_args.command == 'dumpxhtml':
         confluence.dump_xhtml(parsed_args.file)
 
-    if parsed_args.command in ['dump']:
+    if parsed_args.command == 'dump':
         confluence.dump("", parsed_args.page_title)
 
