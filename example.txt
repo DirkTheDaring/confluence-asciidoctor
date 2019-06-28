@@ -1,10 +1,10 @@
-
 == A Heading made simple
 
 User <user@example.com>
 
 _Zen_ is the *art* of writing `plain text` with http://asciidoctor.org[AsciiDoc]
 
+== Section about Python
 [source,python]
 ----
 #!/usr/bin/python3
@@ -18,3 +18,12 @@ print("Hello World!")
 #!/bin/bash
 echo "Hello World!"
 ----
+
+== Tables
+
+[format="csv", options="header"]
+|===
+Writing tools, Awesomeness
+Asciidoctor, Oh yeah!
+MS Word, No!
+|===
