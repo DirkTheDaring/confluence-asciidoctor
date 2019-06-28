@@ -3,7 +3,6 @@
 # FIXME: putting directories as publishing arguments --> should be ignored or fail?
 # FIXME: publishing a file on the same level as .confluence-asciidoctor
 
-
 import sys
 import re
 PYTHON_VERSION=sys.version_info[0]
@@ -469,30 +468,31 @@ class ConfluenceFixes:
 
         <xsl:output indent="yes" method="xml" omit-xml-declaration="yes"  cdata-section-elements="ac:plain-text-body"  />
 
-        <xsl:template match="node()|@*">
-                <xsl:copy>
-                        <xsl:apply-templates select="node()|@*"/>
-                </xsl:copy>
-        </xsl:template>
+	<xsl:template match="node()|@*">
+		<xsl:copy>
+			<xsl:apply-templates select="node()|@*"/>
+  		</xsl:copy>
+	</xsl:template>
 
-        <xsl:template match="//div[div[@class='content']/pre[@class='highlight'] ]" >
-                <ac:structured-macro ac:name="code" ac:schema-version="1" ac:macro-id="bcb394c5-e0b8-4630-9e1a-1c3a48076738">
-                        <ac:parameter ac:name="language"><xsl:value-of select="div/pre/code/@data-lang" /></ac:parameter>
-                        <ac:parameter ac:name="theme">Confluence</ac:parameter>
-                        <ac:parameter ac:name="title">Ueberschrift</ac:parameter>
-                        <ac:plain-text-body><xsl:value-of select="div/pre/code" /></ac:plain-text-body>
-                </ac:structured-macro>
+
+	<xsl:template match="//div[div[@class='content']/pre[@class='highlight'] ]" >
+		<ac:structured-macro ac:name="code" ac:schema-version="1" ac:macro-id="bcb394c5-e0b8-4630-9e1a-1c3a48076738">
+			<ac:parameter ac:name="language"><xsl:value-of select="div/pre/code/@data-lang" /></ac:parameter>
+			<ac:parameter ac:name="theme"><xsl:copy-of select="$theme"/></ac:parameter>
+			<ac:parameter ac:name="title"><xsl:copy-of select="$title"/></ac:parameter>
+			<ac:plain-text-body><xsl:value-of select="div/pre/code" /></ac:plain-text-body>
+		</ac:structured-macro>
         </xsl:template>
 
 </xsl:stylesheet>
 '''
     
-  def transform_code_section(self,dom):
+  def transform_code_section(self,dom, theme='Confluence', title=''):
     xslt = ET.XML(self.transform_code_section_xsl())
     transform = ET.XSLT(xslt)
-    newdom = transform(dom)
+    # Sets two variables for the XSL template 
+    newdom = transform(dom, theme=ET.XSLT.strparam(theme), title=ET.XSLT.strparam(title))
     return newdom
-
 
   def extract_content(self,dom):
     xslt = ET.XML(self.extract_content_div_xsl())
@@ -569,19 +569,33 @@ class ConfluenceFixes:
   def get_a_href_list(self):
     return self.a_href_list
  
-  def process_dom(self, dom):
+  def process_asciidoctor_dom(self, dom):
     self.fix_column_width(dom)
     self.extract_img_source(dom)
     self.xxx(dom)
+
     newdom1 = self.extract_content(dom)
     newdom2 = self.transform_code_section(newdom1)
+    elements = newdom2.xpath("//ac:parameter[@ac:name='language']", namespaces=self.namespaces)
+    for element in elements:
+      value = element.text.lower()
+      if value == "python" or value=='python3':
+          value = "py"
+      elif value == "yaml":
+          value = "yml"
+      element.text = value
 
     result = ET.tostring(newdom2, pretty_print=True, encoding="UTF-8").decode('utf-8')
     return result
 
-  def process_text(self,xhtml_textstring):
+  def process_asciidoctor_xml(self,xhtml_textstring):
     dom     = ET.XML(xhtml_textstring)
-    result  = self.process_dom(dom)
+    result  = self.process_asciidoctor_dom(dom)
+    return result 
+
+  def process_confluence_xml(self,xhtml_textstring):
+    dom    = ET.XML(xhtml_textstring)
+    result = ET.tostring(newdom2, pretty_print=True, encoding="UTF-8").decode('utf-8')
     return result 
 
   def process_file(self, filename):
@@ -834,11 +848,12 @@ class Confluence(object):
 
         return json_result2 
 
+
     def process_file(self, filename, parent_page_title=None):
         title   = self.filename_to_title(filename)
         abspath = os.path.dirname(os.path.abspath(filename))
 
-        if abspath == self.config['root_dir']:  #CONFIG_ROOT:
+        if abspath == self.config['root_dir']:
             relpath = ""
         else:
             relpath = abspath[(len(self.config['root_dir'])+1):]
@@ -846,36 +861,42 @@ class Confluence(object):
         if parent_page_title is None and relpath != "":
             parent_page_title = self.relpath_to_lookup_name(relpath)
             parent_page_title= os.path.basename(parent_page_title)
-
+        
         ancestor_id = self.get_cached_ancestor_id(parent_page_title)
 
-        print("Publishing '"+title+"' to '"+self.HOSTNAME+"' under page '"+parent_page_title+"'")
 
-        fix = None
-        if filename.endswith(".txt"):
-            xhtml   = self.read_from_asciidoctor(filename)
-            fix = ConfluenceFixes()
-            xhtml2 = fix.process_text(xhtml)
-            xml = xhtml2
-        if filename.endswith(".xml"):
-            with open(filename) as myfile:
-                xml = myfile.read()
+        xml, image_src_list = self.file_to_xml(filename)
 
+        message = "Publishing '{0}' to '{1}'".format(title,self.HOSTNAME)
+        if parent_page_title:
+            message = message + " under parent page '{0}'".format(parent_page_title)
 
         result  = self.publish(title,xml,ancestor_id)
-        #print(result)
-        id = result["id"]
+        id      = result["id"]
 
-        if fix:
-          for img in fix.get_image_src_list():
+        for img in image_src_list:
+            print("  Appending image '{0}'".format(img))
             self.c.attach_file_to_page(id,img,"initial")
+
+    def file_to_xml(self, filename):
+        fix = ConfluenceFixes()
+        if filename.endswith(".xml"):
+            with open(filename) as myfile:
+                xhtml = myfile.read()
+                xhtml = fix.process_confluence_xml(xhtml)
+
+        if filename.endswith(".txt"):
+            xhtml = self.read_from_asciidoctor(filename)
+            xhtml = fix.process_asciidoctor_xml(xhtml)
+
+        return ( xhtml, fix.get_image_src_list())
+
 
     def dump(self,filename, page_name):
       json_data = self.c.version(page_name)
       ancestor_id = self.get_element_by_path("results[0].id",json_data)
       result = self.c.dump(ancestor_id)
       body  = self.get_element_by_path("body.storage.value", result)
-
       print(body)
 
     def dump_xhtml(self,filename):
@@ -884,7 +905,7 @@ class Confluence(object):
         if xhtml == "":
             return 
         fix = ConfluenceFixes()
-        xhtml2 = fix.process_text(xhtml)
+        xhtml2 = fix.process_asciidoctor_xml(xhtml)
         print(xhtml2)
  
     def run(self):
