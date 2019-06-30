@@ -962,14 +962,19 @@ def parse_cmdline():
     subparsers = parser.add_subparsers(help='commands', dest='command')
 
     # Publish page
-    #parser_publish = subparsers.add_parser('publish', aliases=['pu'], help='publish help')
-    parser_publish = subparsers.add_parser('publish',  help='publish help')
+    if PYTHON_VERSION == 2:
+        parser_publish = subparsers.add_parser('publish',  help='publish help')
+    else:
+        parser_publish = subparsers.add_parser('publish', aliases=['pu'], help='publish help')
     parser_publish.add_argument('-p', '--parent-page-title', metavar='parent_page_title', help='title of the parent page')
     parser_publish.add_argument('file', metavar='file', nargs='+', help='file')
 
     # Download Page
-    #parser_download = subparsers.add_parser('download', aliases=['do'], help='download help')
-    parser_download = subparsers.add_parser('download', help='download help')
+    if PYTHON_VERSION == 2:
+        parser_download = subparsers.add_parser('download', help='download help')
+    else:
+        parser_download = subparsers.add_parser('download', aliases=['do'], help='download help')
+
     parser_download.add_argument('page_title', help='page title')
 
     # Dump xhtml
