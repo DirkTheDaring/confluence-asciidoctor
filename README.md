@@ -9,6 +9,9 @@ sudo gem install asciidoctor
 sudo dnf install python-lxml 
 pip install poster
 
+# Setup your .netrc with your credentials in $HOME
+vim ~/.netrc
+
 # Init repo (you find this then in .confluence-asciidoctor/config)
 confluence-asciidoctor init --url https://your.confluence.server.com/display/NAME
 
