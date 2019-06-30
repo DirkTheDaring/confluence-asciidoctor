@@ -12,8 +12,12 @@ pip install poster
 # Init repo (you find this then in .confluence-asciidoctor/config)
 confluence-asciidoctor init --url https://your.confluence.server.com/display/NAME
 
-# Example upload
+# Example publish
 confluence-asciidoctor publish example.txt
+
+confluence-asciidoctor --code-theme RDark publish example.txt
+
 
 # Example download
 confluence-asciidoctor download "Minutes"
+
