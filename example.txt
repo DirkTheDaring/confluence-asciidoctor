@@ -17,13 +17,16 @@ print("Hello World!")
 ----
 #!/bin/bash
 echo "Hello World!"
+if [ -e /etc/os-release ]; then
+  cat /etc/os-release 
+fi
 ----
 
 == Tables
 
 [format="csv", options="header"]
 |===
-Writing tools, Awesomeness
-Asciidoctor, Oh yeah!
-MS Word, No!
+Writing tools, Awesomeness, test
+Asciidoctor, Oh yeah!, *OK*
+MS Word, No!, _OK_
 |===
