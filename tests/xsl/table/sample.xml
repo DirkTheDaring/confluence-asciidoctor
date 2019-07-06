@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
+<head>
+<title>A Heading made simple</title>
+</head>
+<body class="article">
+<div class="sect1">
+<h2 id="_tables">Tables</h2>
+<div class="sectionbody">
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 33.3333%;"/>
+<col style="width: 33.3333%;"/>
+<col style="width: 33.3334%;"/>
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Writing tools</th>
+<th class="tableblock halign-left valign-top">Awesomeness</th>
+<th class="tableblock halign-left valign-top">test</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Asciidoctor</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Oh yeah!</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>OK</strong></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">MS Word</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">No!</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><em>OK</em></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</body>
+</html>
