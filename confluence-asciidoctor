@@ -348,76 +348,6 @@ class ConfluenceFixes:
     }
     self.config = config
 
-  def find_width_value(self,style):
-    settings = style.split(';')
-    for setting in settings:
-        if setting == '':
-            continue
-        key, value = setting.split(':')
-        if key == 'width':
-            value = value.strip()
-            #print(value)
-            return value
-    return ''
-
-  def handle_table(self,table,namespace_hash):
-
-    colgroup = table.find('xhtml:colgroup', namespaces=namespace_hash)
-    if colgroup is None:
-        return
-    cols = colgroup.findall("xhtml:col", namespaces=namespace_hash)
-    list = []
-    for col in cols:
-        style=col.attrib['style']
-        value = self.find_width_value(style)
-        list.append(value)
-
-    table.remove(colgroup)
-
-
-    thead    = table.find('xhtml:thead',    namespaces=namespace_hash)
-
-    if thead is None:
-        tbody    = table.find('xhtml:tbody',namespaces=namespace_hash)
-        if tbody is None:
-            return  
-        rows = tbody.findall('xhtml:tr',   namespaces=namespace_hash)
-        if rows is None:
-            return 
-
-        for row in rows:
-            i=0
-            columns  = row.findall('xhtml:td',   namespaces=namespace_hash)
-            for col in columns:
-                if list[i] != '':
-                    col.attrib['width']=list[i]
-                i = i +1 
-    else:
-        i=0
-        ths    = thead.findall('xhtml:tr/xhtml:th',   namespaces=namespace_hash)
-        for th in ths:
-            if list[i] != '':
-                th.attrib['width']=list[i]
-            i = i + 1
-
- 
- 
-  def fix_column_width(self,dom):
-    tables  =  dom.xpath('/xhtml:html/xhtml:body//xhtml:table', namespaces=self.namespaces)
-    for table in tables:
-        self.handle_table(table,self.namespaces)
-
-#        <xsl:template match="x:img">
-#		<ac:image>
-#			<xsl:element name="ri:attachment" >
-#			    	<xsl:attribute name="ri:filename">
-#					<xsl:value-of select="@src" />
-#				</xsl:attribute>
-#			</xsl:element>	
-#		</ac:image>
-#        </xsl:template>
-
-
   # This gives the same result as the "-s" switch in asciidoctor for xhtml5
   def extract_content_div_xsl(self):
     return '''<xsl:stylesheet
@@ -487,6 +417,75 @@ class ConfluenceFixes:
 
 </xsl:stylesheet>
 '''
+  def transform_table_xsl(self):
+      return '''
+<xsl:stylesheet
+        version="1.0"
+        xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+        xmlns:x="http://www.w3.org/1999/xhtml"
+        exclude-result-prefixes="x"
+        >
+
+	<xsl:output indent="yes" method="xml" omit-xml-declaration="yes" />
+
+	<xsl:template match="node()|@*">
+		<xsl:copy>
+			<xsl:apply-templates select="node()|@*"/>
+  		</xsl:copy>
+	</xsl:template>
+
+
+	<xsl:template match="x:table">
+		<xsl:element name="table" namespace="http://www.w3.org/1999/xhtml"  >
+			<xsl:attribute name="class">fixed-table wrapped</xsl:attribute>
+		
+		<xsl:element name="colgroup" namespace="http://www.w3.org/1999/xhtml" >
+			<xsl:copy-of select="./x:colgroup/x:col"/>
+		</xsl:element>
+
+		<!-- for confluence, thead and tbody rows have to be merged into tbody
+		     Additionally we need to remove the class attributes which are applied to th and td,
+		     therefore we generate this out of a table -->
+
+		<xsl:element name="tbody" namespace="http://www.w3.org/1999/xhtml" >
+			<!--<xsl:copy-of select="./x:thead/x:tr"/> -->
+			<!-- <xsl:copy-of select="./x:tbody/x:tr"/> -->
+			<xsl:for-each select="./x:thead/x:tr">
+				<xsl:element name="tr" namespace="http://www.w3.org/1999/xhtml" >
+					<xsl:for-each select="./x:th">
+					<xsl:element name="th" namespace="http://www.w3.org/1999/xhtml" >
+							<xsl:copy-of select="node()"/>	
+					</xsl:element>
+					</xsl:for-each>
+				</xsl:element>
+			</xsl:for-each>
+
+			<xsl:for-each select="./x:tbody/x:tr">
+				<xsl:element name="tr" namespace="http://www.w3.org/1999/xhtml" >
+					<xsl:for-each select="./x:td/x:p">
+					<xsl:element name="td" namespace="http://www.w3.org/1999/xhtml" >
+							<xsl:copy-of select="node()"/>	
+					</xsl:element>
+					</xsl:for-each>
+				</xsl:element>
+			</xsl:for-each>
+
+
+
+		</xsl:element>
+
+		</xsl:element>
+
+	</xsl:template>
+	
+</xsl:stylesheet>
+'''
+  def transform_table(self,dom):
+    xslt = ET.XML(self.transform_table_xsl())
+    transform = ET.XSLT(xslt)
+    newdom = transform(dom)
+    return newdom
+
     
   def transform_code_section(self,dom):
     theme = self.config['default']['code_theme']
@@ -495,6 +494,16 @@ class ConfluenceFixes:
     transform = ET.XSLT(xslt)
     # Sets two variables for the XSL template 
     newdom = transform(dom, theme=ET.XSLT.strparam(theme), title=ET.XSLT.strparam(title))
+
+    elements = newdom.xpath("//ac:parameter[@ac:name='language']", namespaces=self.namespaces)
+    for element in elements:
+      value = element.text.lower()
+      if value == "python" or value=='python3':
+          value = "py"
+      elif value == "yaml":
+          value = "yml"
+      element.text = value
+
     return newdom
 
   def extract_content(self,dom):
@@ -573,22 +582,14 @@ class ConfluenceFixes:
     return self.a_href_list
  
   def process_asciidoctor_dom(self, dom):
-    self.fix_column_width(dom)
     self.extract_img_source(dom)
     self.xxx(dom)
 
     newdom1 = self.extract_content(dom)
     newdom2 = self.transform_code_section(newdom1)
-    elements = newdom2.xpath("//ac:parameter[@ac:name='language']", namespaces=self.namespaces)
-    for element in elements:
-      value = element.text.lower()
-      if value == "python" or value=='python3':
-          value = "py"
-      elif value == "yaml":
-          value = "yml"
-      element.text = value
+    newdom3 = self.transform_table(newdom2)
 
-    result = ET.tostring(newdom2, pretty_print=True, encoding="UTF-8").decode('utf-8')
+    result = ET.tostring(newdom3, pretty_print=True, encoding="UTF-8").decode('utf-8')
     return result
 
   def process_asciidoctor_xml(self,xhtml_textstring):
