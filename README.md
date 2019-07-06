@@ -20,7 +20,6 @@ confluence-asciidoctor publish example.txt
 
 confluence-asciidoctor --code-theme RDark publish example.txt
 
-
 # Example download
 confluence-asciidoctor download "Minutes"
 
