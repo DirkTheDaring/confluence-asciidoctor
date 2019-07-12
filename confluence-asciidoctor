@@ -422,10 +422,11 @@ class ConfluenceFixes:
         version="1.0"
         xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
         xmlns:x="http://www.w3.org/1999/xhtml"
+        xmlns:ac="http://www.atlassian.com/schema/confluence/4/ac/"
         exclude-result-prefixes="x"
         >
 
-	<xsl:output indent="yes" method="xml" omit-xml-declaration="yes" />
+	<xsl:output indent="yes" method="xml" omit-xml-declaration="yes"  cdata-section-elements="ac:plain-text-body"  />
 
 	<xsl:template match="node()|@*">
 		<xsl:copy>
@@ -585,7 +586,9 @@ class ConfluenceFixes:
 
     newdom1 = self.extract_content(dom)
     newdom2 = self.transform_code_section(newdom1)
+    #print(ET.tostring(newdom2, pretty_print=True, encoding="UTF-8").decode('utf-8'))
     newdom3 = self.transform_table(newdom2)
+    #print(ET.tostring(newdom3, pretty_print=True, encoding="UTF-8").decode('utf-8'))
 
     result = ET.tostring(newdom3, pretty_print=True, encoding="UTF-8").decode('utf-8')
     return result
