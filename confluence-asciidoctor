@@ -4,7 +4,7 @@
 
 import sys
 import re
-PYTHON_VERSION=sys.version_info[0]
+PYTHON_VERSION = sys.version_info[0]
 
 if PYTHON_VERSION == 3:
     import urllib3
@@ -39,225 +39,225 @@ from io             import StringIO
 # do not raise exceptions on these return codes
 
 if PYTHON_VERSION == 2:
-  class HTTPErrorHandlerExtension(urllib2.BaseHandler):
-    def http_error_201(self, request, response, code, msg, hdrs):
-        return response
-    def http_error_204(self, request, response, code, msg, hdrs):
-        return response
-    def http_error_206(self, request, response, code, msg, hdrs):
-        return response
+    class HTTPErrorHandlerExtension(urllib2.BaseHandler):
+        def http_error_201(self, request, response, code, msg, hdrs):
+            return response
+        def http_error_204(self, request, response, code, msg, hdrs):
+            return response
+        def http_error_206(self, request, response, code, msg, hdrs):
+            return response
 
-  class HTTP(object):
-    def __init__(self,basic_auth):
-        handler_extension = urllib2.build_opener(HTTPErrorHandlerExtension)
-        urllib2.install_opener(handler_extension)
-        self.basic_auth = base64.b64encode(basic_auth)
-        # File Upload
-        register_openers()
+    class HTTP(object):
+        def __init__(self, basic_auth):
+            handler_extension = urllib2.build_opener(HTTPErrorHandlerExtension)
+            urllib2.install_opener(handler_extension)
+            self.basic_auth = base64.b64encode(basic_auth)
+            # File Upload
+            register_openers()
 
-    def add_headers(self, request, headers=None):
-        request.add_header('Authorization', 'Basic %s' % self.basic_auth)   
-        request.add_header('Content-Type','application/json')
-        if headers is None:
-            return
-        # will overwrite alread existing key/value pair if key name collides
-        for key in headers.keys():
-            request.add_header(key,headers[key])
+        def add_headers(self, request, headers=None):
+            request.add_header('Authorization', 'Basic %s' % self.basic_auth)
+            request.add_header('Content-Type', 'application/json')
+            if headers is None:
+                return
+            # will overwrite alread existing key/value pair if key name collides
+            for key in headers.keys():
+                request.add_header(key, headers[key])
 
-    def handle_response(self,request):
-        response_status = request.getcode()
-        if response_status != 200:
-            print(response_status)
-            return None
-        return request.read()
+        def handle_response(self, request):
+            response_status = request.getcode()
+            if response_status != 200:
+                print(response_status)
+                return None
+            return request.read()
 
-    def GET(self,url):
-        request = urllib2.Request(url)
-        self.add_headers(request)
-        response = urllib2.urlopen(request)            
-        return self.handle_response(response)
+        def GET(self, url):
+            request = urllib2.Request(url)
+            self.add_headers(request)
+            response = urllib2.urlopen(request)
+            return self.handle_response(response)
 
-    def POST(self,url,data,headers=None):
-        request = urllib2.Request(url,data)
-        self.add_headers(request,headers)
-        request.get_method = lambda: 'POST'
-        response = urllib2.urlopen(request)            
-        return self.handle_response(response)
+        def POST(self, url, data, headers=None):
+            request = urllib2.Request(url, data)
+            self.add_headers(request, headers)
+            request.get_method = lambda: 'POST'
+            response = urllib2.urlopen(request)
+            return self.handle_response(response)
 
-    def PUT(self,url,data):
-        request = urllib2.Request(url,data)
-        self.add_headers(request)
-        request.get_method = lambda: 'PUT'
-        response = urllib2.urlopen(request)            
-        return self.handle_response(response)
+        def PUT(self, url, data):
+            request = urllib2.Request(url, data)
+            self.add_headers(request)
+            request.get_method = lambda: 'PUT'
+            response = urllib2.urlopen(request)
+            return self.handle_response(response)
 
-    @classmethod
-    def from_params(cls, params):
+        @classmethod
+        def from_params(cls, params):
 
-        if hasattr(params, 'items'):
-            params = params.items()
-        retval = []
+            if hasattr(params, 'items'):
+                params = params.items()
+            retval = []
 
-        for item in params:
-            if isinstance(item, MultipartParam):
-               retval.append(item)
-               continue
+            for item in params:
+                if isinstance(item, MultipartParam):
+                    retval.append(item)
+                    continue
 
-            name, value = item
-            if hasattr(value, 'read'):
-               # Looks like a file object
-                filename = getattr(value, 'name', None)
-                filename = os.path.basename(filename)
-                if filename is not None:
-                    filetype = mimetypes.guess_type(filename)[0]
+                name, value = item
+                if hasattr(value, 'read'):
+                    # Looks like a file object
+                    filename = getattr(value, 'name', None)
+                    filename = os.path.basename(filename)
+                    if filename is not None:
+                        filetype = mimetypes.guess_type(filename)[0]
+                    else:
+                        filetype = None
+
+                    retval.append(MultipartParam(name=name,
+                        filename=filename, filetype=filetype, fileobj=value))
                 else:
-                    filetype = None
+                    retval.append(MultipartParam(name, value))
 
-                retval.append(MultipartParam(name=name, filename=filename,
-                    filetype=filetype, fileobj=value))
+            return retval
+
+
+        def multipart_encode(self, params, boundary=None):
+
+            if boundary is None:
+                boundary = gen_boundary()
             else:
-                retval.append(MultipartParam(name, value))
+                boundary = urllib.quote_plus(boundary)
 
-        return retval
+            headers = get_headers(params, boundary)
+            params = self.from_params(params)
 
+            def yielder():
+                for param in params:
+                    for block in param.iter_encode(boundary):
+                        yield block
+                yield "--%s--\r\n" % boundary
 
-    def multipart_encode(self,params,boundary=None):
+            return yielder(), headers
 
-        if boundary is None:
-            boundary = gen_boundary()
-        else:
-            boundary = urllib.quote_plus(boundary)
-
-        headers = get_headers(params, boundary)
-        params =  self.from_params(params)
-
-        def yielder():
-            for param in params:
-                for block in param.iter_encode(boundary):
-                    yield block
-            yield "--%s--\r\n" % boundary
-
-        return yielder(), headers
-
-    def POST_FILE(self,url,headers,fields,filepath,field_name,filename=None):
-        f = open(filepath, 'rb')
-        fields[field_name]=f
-        data, headers = self.multipart_encode(fields)
-        result = self.POST(url,data,headers)
-        f.close()
-        return result
+        def POST_FILE(self, url, headers, fields, filepath, field_name, filename=None):
+            f = open(filepath, 'rb')
+            fields[field_name] = f
+            data, headers = self.multipart_encode(fields)
+            result = self.POST(url, data, headers)
+            f.close()
+            return result
 
 
 elif PYTHON_VERSION == 3:
-  class HTTP(object):
+    class HTTP(object):
 
-    def __init__(self,basic_auth=None):
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        def __init__(self, basic_auth=None):
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-        proxy_url = self.get_proxy_url()
-        if proxy_url is None:
-            self.http       = urllib3.PoolManager()
-        else:
-            self.http       = urllib3.ProxyManager(proxy_url)
+            proxy_url = self.get_proxy_url()
+            if proxy_url is None:
+                self.http = urllib3.PoolManager()
+            else:
+                self.http = urllib3.ProxyManager(proxy_url)
 
-        self.basic_auth = basic_auth
-        self.headers    = urllib3.util.make_headers(basic_auth=basic_auth)
-        self.headers['Content-Type']='application/json'
+            self.basic_auth = basic_auth
+            self.headers = urllib3.util.make_headers(basic_auth=basic_auth)
+            self.headers['Content-Type'] = 'application/json'
 
-    def get_proxy_url(self):
-        for NAME in ['HTTPS_PROXY','https_proxy','HTTP_PROXY','http_proxy']:
-            value = os.environ.get(NAME)
-            if value is not None:
-                return value
-        return value
+        def get_proxy_url(self):
+            for NAME in ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy']:
+                value = os.environ.get(NAME)
+                if value is not None:
+                    return value
+            return value
 
-    def add_headers(self,headers):
-        headers_new = urllib3.util.make_headers(basic_auth=self.basic_auth)
-        if headers is None:
+        def add_headers(self, headers):
+            headers_new = urllib3.util.make_headers(basic_auth=self.basic_auth)
+            if headers is None:
+                return headers_new
+            # will overwrite alread existing key/value pair if key name collides
+            for key in headers.keys():
+                headers_new[key] = headers[key]
             return headers_new
-        # will overwrite alread existing key/value pair if key name collides
-        for key in headers.keys():
-            headers_new[key] = headers[key]
-        return headers_new
 
-    def handle_response(self,response):
-        if response.status != 200:
-            print(response.status)
-            #print(vars(response))
-            sys.exit(1)
-            return None
-        return response.data.decode("utf-8", "strict")
+        def handle_response(self, response):
+            if response.status != 200:
+                print(response.status)
+                #print(vars(response))
+                sys.exit(1)
+                return None
+            return response.data.decode("utf-8", "strict")
 
-    def GET(self,url):
-        response    = self.http.request('GET', url, headers=self.headers)
-        return self.handle_response(response)
+        def GET(self, url):
+            response = self.http.request('GET', url, headers=self.headers)
+            return self.handle_response(response)
 
-    def POST(self,url,data):
-        response    = self.http.request('POST', url, headers=self.headers, body=data )
-        return self.handle_response(response)
+        def POST(self, url, data):
+            response = self.http.request('POST', url, headers=self.headers, body=data)
+            return self.handle_response(response)
 
-    def PUT(self,url,data):
-        response    = self.http.request('PUT', url, headers=self.headers, body=data )
-        return self.handle_response(response)
+        def PUT(self, url, data):
+            response = self.http.request('PUT', url, headers=self.headers, body=data)
+            return self.handle_response(response)
 
-    def POST_MULTIPART(self,url,headers,fields):
-        response = self.http.request('POST',url,headers=headers,fields=fields)
-        return self.handle_response(response)
+        def POST_MULTIPART(self, url, headers, fields):
+            response = self.http.request('POST', url, headers=headers, fields=fields)
+            return self.handle_response(response)
 
-    def POST_FILE(self,url,headers,fields,filepath,field_name,filename=None):
-        headers = self.add_headers(headers)
+        def POST_FILE(self, url, headers, fields, filepath, field_name, filename=None):
+            headers = self.add_headers(headers)
 
-        with open(filepath,"rb") as fp:
-            data = fp.read()
+            with open(filepath, "rb") as fp:
+                data = fp.read()
 
-        if filename is None:
-            filename = os.path.basename(filepath)
+            if filename is None:
+                filename = os.path.basename(filepath)
 
-        fields[field_name]=(filename,data)
+            fields[field_name] = (filename, data)
 
-        return self.POST_MULTIPART(url,fields=fields,headers=headers)
+            return self.POST_MULTIPART(url, fields=fields, headers=headers)
 
 
 class ConfluenceRestAPI(object):
     def __init__(self, http, base_url, space_key):
-        self.http       = http
-        self.base_url   = base_url
-        self.space_key  = space_key
+        self.http = http
+        self.base_url = base_url
+        self.space_key = space_key
 
-    def build_url(self,param_dict):
+    def build_url(self, param_dict):
         return self.base_url + '/rest/api/content?' + urlencode(param_dict)
 
-    def handle_json(self,result):
+    def handle_json(self, result):
         if result is None:
             return {}
         return json.loads(result)
 
-    def GET_JSON(self,url):
-        result   = self.http.GET(url)
+    def GET_JSON(self, url):
+        result = self.http.GET(url)
         return self.handle_json(result)
 
-    def POST_JSON(self,url,json_dict):
+    def POST_JSON(self, url, json_dict):
         encoded_data = json.dumps(json_dict)
-        result = self.http.POST(url,encoded_data)
+        result = self.http.POST(url, encoded_data)
         return self.handle_json(result)
 
-    def PUT_JSON(self,url,json_dict):
+    def PUT_JSON(self, url, json_dict):
         encoded_data = json.dumps(json_dict)
-        result = self.http.PUT(url,encoded_data)
+        result = self.http.PUT(url, encoded_data)
         return self.handle_json(result)
 
     def ancestors(self, title):
-        expand  = 'ancestors'
-        url     = self.build_url({'spaceKey':self.space_key,'expand':expand,'title':title})
+        expand = 'ancestors'
+        url = self.build_url({'spaceKey':self.space_key, 'expand':expand, 'title':title})
         return self.GET_JSON(url)
 
     def version(self, title):
-        expand  = 'version'
-        url     = self.build_url({'spaceKey':self.space_key,'expand':expand,'title':title})
+        expand = 'version'
+        url = self.build_url({'spaceKey':self.space_key, 'expand':expand, 'title':title})
         return self.GET_JSON(url)
 
     def dump(self, id):
-        url =  self.base_url + '/rest/api/content/' + id + '?expand=body.storage'
+        url = self.base_url + '/rest/api/content/' + id + '?expand=body.storage'
         return self.GET_JSON(url)
 
     def merge_dict(self, x, y):
@@ -265,24 +265,24 @@ class ConfluenceRestAPI(object):
         z.update(y)
         return z
 
-    def create_page(self,title,xhtml, ancestor_id=None):
-        dict={
+    def create_page(self, title, xhtml, ancestor_id=None):
+        dict = {
             'type'   : 'page',
             'title'  : title,
             'space'  : {'key' : self.space_key},
             'body'   : {'storage':{'value': xhtml, 'representation' : 'storage'}}
         }
         if ancestor_id is not None:
-            dict2= { 'ancestors': [ {'type':'page','id': ancestor_id } ] }
+            dict2 = {'ancestors': [{'type':'page', 'id': ancestor_id}]}
             # Merge dict
             #dict = { **dict, **dict2}
-            dict = self.merge_dict(dict,dict2)
+            dict = self.merge_dict(dict, dict2)
 
-        url= self.base_url + '/rest/api/content/'
-        return self.POST_JSON(url,dict)
+        url = self.base_url + '/rest/api/content/'
+        return self.POST_JSON(url, dict)
 
-    def update_page(self,id,version,title,value,ancestor_id=None):
-        dict={
+    def update_page(self, id, version, title, value, ancestor_id=None):
+        dict = {
             'id'     : id,
             'type'   : 'page',
             'title'  : title,
@@ -292,354 +292,346 @@ class ConfluenceRestAPI(object):
         }
 
         if ancestor_id is not None:
-          dict2= { 'ancestors':[{'type':'page','id': ancestor_id}] }
-          # Merge dict
-          dict = self.merge_dict(dict,dict2)
+            dict2 = {'ancestors':[{'type':'page', 'id': ancestor_id}]}
+            # Merge dict
+            dict = self.merge_dict(dict, dict2)
 
-        url     = self.base_url + '/rest/api/content/'+id
-        return self.PUT_JSON(url,dict)
+        url = self.base_url + '/rest/api/content/'+id
+        return self.PUT_JSON(url, dict)
 
 
-    def list_attachments(self,id):
+    def list_attachments(self, id):
         url = self.base_url + '/rest/api/content/'+id+"/child/attachment"
         return self.GET_JSON(url)
 
     # https://community.atlassian.com/t5/Confluence-questions/How-to-post-attachments-to-confluence-page/qaq-p/214853
     # https://community.atlassian.com/t5/Confluence-questions/Can-i-update-file-attachments-using-the-rest-api/qaq-p/308327
 
-    def attach_file(self,page_id,filename,comment=""):
+    def attach_file(self, page_id, filename, comment=""):
         url = self.base_url + '/rest/api/content/'+page_id+"/child/attachment"
         #url  = "http://127.0.0.1:8080" + '/rest/api/content/'+page_id+"/child/attachment"
-        headers={
+        headers = {
             'X-Atlassian-Token': 'nocheck'
         }
         fields = {
             'comment':  comment
         }
-        result = self.http.POST_FILE(url,headers,fields,filename,'file')
-        return self.handle_json(result)   
+        result = self.http.POST_FILE(url, headers, fields, filename, 'file')
+        return self.handle_json(result)
 
-   
-    def attach_file_to_page(self,id,filepath,comment=""):
+    def attach_file_to_page(self, id, filepath, comment=""):
 
         if not os.path.exists(filepath):
-            print("Attachment File does not exist: "+filepath)
+            print("Attachment File does not exist: " + filepath)
             return
         json_result = self.list_attachments(id)
 
         for result in json_result['results']:
             existing_filename = result['title']
             if os.path.basename(filepath) == existing_filename:
-                print("Attachment already exists(skipped): "+ str(existing_filename))
+                print("Attachment already exists(skipped): " + str(existing_filename))
                 return
-        print("Uploading attachment: "+filepath)
-        return self.attach_file(id,filepath,comment)
+        print("Uploading attachment: " + filepath)
+        return self.attach_file(id, filepath, comment)
 
 class ConfluenceFixes:
 
-  def  __init__(self,config):
-    self.image_src_list = []
-    self.a_href_list = []
-    self.namespaces = {
-        "xhtml":    "http://www.w3.org/1999/xhtml",
-        "ac":       "http://www.atlassian.com/schema/confluence/4/ac/",
-        "ri":       "http://www.atlassian.com/schema/confluence/4/ri/"
-    }
-    self.config = config
+    def  __init__(self, config):
+        self.image_src_list = []
+        self.a_href_list = []
+        self.namespaces = {
+            "xhtml":    "http://www.w3.org/1999/xhtml",
+            "ac":       "http://www.atlassian.com/schema/confluence/4/ac/",
+            "ri":       "http://www.atlassian.com/schema/confluence/4/ri/"
+        }
+        self.config = config
 
-  # This gives the same result as the "-s" switch in asciidoctor for xhtml5
-  def extract_content_div_xsl(self):
-    return '''<xsl:stylesheet
-        version="1.0"
-        xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
-        xmlns:x="http://www.w3.org/1999/xhtml"
-        xmlns:ac="http://www.atlassian.com/schema/confluence/4/ac/"
-        xmlns:ri="http://www.atlassian.com/schema/confluence/4/ri/"
-        exclude-result-prefixes="x"
-        >
+    # This gives the same result as the "-s" switch in asciidoctor for xhtml5
+    def extract_content_div_xsl(self):
+        return '''<xsl:stylesheet
+            version="1.0"
+            xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+            xmlns:x="http://www.w3.org/1999/xhtml"
+            xmlns:ac="http://www.atlassian.com/schema/confluence/4/ac/"
+            xmlns:ri="http://www.atlassian.com/schema/confluence/4/ri/"
+            exclude-result-prefixes="x"
+            >
 
-        <xsl:output indent="yes" method="xml" omit-xml-declaration="yes"  />
+            <xsl:output indent="yes" method="xml" omit-xml-declaration="yes"  />
 
-        <xsl:template match="/">
-                <div>
-                <xsl:apply-templates select="x:html/x:body/x:div[@id='content']/x:*"/>
-                </div>
-        </xsl:template>
+            <xsl:template match="/">
+                    <div>
+                    <xsl:apply-templates select="x:html/x:body/x:div[@id='content']/x:*"/>
+                    </div>
+            </xsl:template>
 
 
-        <xsl:template match="@*|node()">
-        <xsl:copy>
-            <xsl:apply-templates select="@*|node()"/>
-        </xsl:copy>
-        </xsl:template>
+            <xsl:template match="@*|node()">
+            <xsl:copy>
+                <xsl:apply-templates select="@*|node()"/>
+            </xsl:copy>
+            </xsl:template>
 
-        <!-- Remove namespace magic -->
-        <xsl:template match="x:*">
-                <xsl:element name="{local-name()}">
-                        <xsl:copy-of select="namespace::*[not(. = namespace-uri(..))]"/>
-                        <xsl:apply-templates select="@*|node()"/>
-                </xsl:element>
-        </xsl:template>
+            <!-- Remove namespace magic -->
+            <xsl:template match="x:*">
+                    <xsl:element name="{local-name()}">
+                            <xsl:copy-of select="namespace::*[not(. = namespace-uri(..))]"/>
+                            <xsl:apply-templates select="@*|node()"/>
+                    </xsl:element>
+            </xsl:template>
 
 </xsl:stylesheet>
 '''
 
 
-  def transform_code_section_xsl(self):
-    return '''
+    def transform_code_section_xsl(self):
+        return '''
 <xsl:stylesheet
-        version="1.0"
-        xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
-        xmlns:x="http://www.w3.org/1999/xhtml"
-        xmlns:ac="http://www.atlassian.com/schema/confluence/4/ac/"
-        xmlns:ri="http://www.atlassian.com/schema/confluence/4/ri/"
-        exclude-result-prefixes="x"
-        >
+            version="1.0"
+            xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+            xmlns:x="http://www.w3.org/1999/xhtml"
+            xmlns:ac="http://www.atlassian.com/schema/confluence/4/ac/"
+            xmlns:ri="http://www.atlassian.com/schema/confluence/4/ri/"
+            exclude-result-prefixes="x"
+            >
 
-        <xsl:output indent="yes" method="xml" omit-xml-declaration="yes"  cdata-section-elements="ac:plain-text-body"  />
+            <xsl:output indent="yes" method="xml" omit-xml-declaration="yes"  cdata-section-elements="ac:plain-text-body"  />
 
-	<xsl:template match="node()|@*">
-		<xsl:copy>
-			<xsl:apply-templates select="node()|@*"/>
-  		</xsl:copy>
-	</xsl:template>
+    <xsl:template match="node()|@*">
+    	<xsl:copy>
+    		<xsl:apply-templates select="node()|@*"/>
+    		</xsl:copy>
+    </xsl:template>
 
 
-	<xsl:template match="//div[div[@class='content']/pre[@class='highlight'] ]" >
-		<ac:structured-macro ac:name="code" ac:schema-version="1" ac:macro-id="bcb394c5-e0b8-4630-9e1a-1c3a48076738">
-			<ac:parameter ac:name="language"><xsl:value-of select="div/pre/code/@data-lang" /></ac:parameter>
-			<ac:parameter ac:name="theme"><xsl:copy-of select="$theme"/></ac:parameter>
-			<ac:parameter ac:name="title"><xsl:copy-of select="$title"/></ac:parameter>
-			<ac:plain-text-body><xsl:value-of select="div/pre/code" /></ac:plain-text-body>
-		</ac:structured-macro>
-        </xsl:template>
+    <xsl:template match="//div[div[@class='content']/pre[@class='highlight'] ]" >
+    	<ac:structured-macro ac:name="code" ac:schema-version="1" ac:macro-id="bcb394c5-e0b8-4630-9e1a-1c3a48076738">
+    		<ac:parameter ac:name="language"><xsl:value-of select="div/pre/code/@data-lang" /></ac:parameter>
+    		<ac:parameter ac:name="theme"><xsl:copy-of select="$theme"/></ac:parameter>
+    		<ac:parameter ac:name="title"><xsl:copy-of select="$title"/></ac:parameter>
+    		<ac:plain-text-body><xsl:value-of select="div/pre/code" /></ac:plain-text-body>
+    	</ac:structured-macro>
+            </xsl:template>
 
 </xsl:stylesheet>
 '''
-  def transform_table_xsl(self):
-      return '''
+    def transform_table_xsl(self):
+        return '''
 <xsl:stylesheet
-        version="1.0"
-        xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
-        xmlns:x="http://www.w3.org/1999/xhtml"
-        xmlns:ac="http://www.atlassian.com/schema/confluence/4/ac/"
-        exclude-result-prefixes="x"
-        >
+            version="1.0"
+            xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+            xmlns:x="http://www.w3.org/1999/xhtml"
+            xmlns:ac="http://www.atlassian.com/schema/confluence/4/ac/"
+            exclude-result-prefixes="x"
+            >
 
-	<xsl:output indent="yes" method="xml" omit-xml-declaration="yes"  cdata-section-elements="ac:plain-text-body"  />
+    <xsl:output indent="yes" method="xml" omit-xml-declaration="yes"  cdata-section-elements="ac:plain-text-body"  />
 
-	<xsl:template match="node()|@*">
-		<xsl:copy>
-			<xsl:apply-templates select="node()|@*"/>
-  		</xsl:copy>
-	</xsl:template>
-
-
-	<xsl:template match="x:table">
-		<xsl:element name="table" namespace="http://www.w3.org/1999/xhtml"  >
-			<xsl:attribute name="class">fixed-table wrapped</xsl:attribute>
-		
-		<xsl:element name="colgroup" namespace="http://www.w3.org/1999/xhtml" >
-			<xsl:copy-of select="./x:colgroup/x:col"/>
-		</xsl:element>
-
-		<!-- for confluence, thead and tbody rows have to be merged into tbody
-		     Additionally we need to remove the class attributes which are applied to th and td,
-		     therefore we generate this out of a table -->
-
-		<xsl:element name="tbody" namespace="http://www.w3.org/1999/xhtml" >
-			<!--<xsl:copy-of select="./x:thead/x:tr"/> -->
-			<!-- <xsl:copy-of select="./x:tbody/x:tr"/> -->
-			<xsl:for-each select="./x:thead/x:tr">
-				<xsl:element name="tr" namespace="http://www.w3.org/1999/xhtml" >
-					<xsl:for-each select="./x:th">
-					<xsl:element name="th" namespace="http://www.w3.org/1999/xhtml" >
-							<xsl:copy-of select="node()"/>	
-					</xsl:element>
-					</xsl:for-each>
-				</xsl:element>
-			</xsl:for-each>
-
-			<xsl:for-each select="./x:tbody/x:tr">
-				<xsl:element name="tr" namespace="http://www.w3.org/1999/xhtml" >
-					<xsl:for-each select="./x:td/x:p">
-					<xsl:element name="td" namespace="http://www.w3.org/1999/xhtml" >
-							<xsl:copy-of select="node()"/>	
-					</xsl:element>
-					</xsl:for-each>
-				</xsl:element>
-			</xsl:for-each>
+    <xsl:template match="node()|@*">
+    	<xsl:copy>
+    		<xsl:apply-templates select="node()|@*"/>
+    		</xsl:copy>
+    </xsl:template>
 
 
+    <xsl:template match="x:table">
+    	<xsl:element name="table" namespace="http://www.w3.org/1999/xhtml"  >
+    		<xsl:attribute name="class">fixed-table wrapped</xsl:attribute>
+    	
+    	<xsl:element name="colgroup" namespace="http://www.w3.org/1999/xhtml" >
+    		<xsl:copy-of select="./x:colgroup/x:col"/>
+    	</xsl:element>
 
-		</xsl:element>
+    	<!-- for confluence, thead and tbody rows have to be merged into tbody
+    	     Additionally we need to remove the class attributes which are applied to th and td,
+    	     therefore we generate this out of a table -->
 
-		</xsl:element>
+    	<xsl:element name="tbody" namespace="http://www.w3.org/1999/xhtml" >
+    		<!--<xsl:copy-of select="./x:thead/x:tr"/> -->
+    		<!-- <xsl:copy-of select="./x:tbody/x:tr"/> -->
+    		<xsl:for-each select="./x:thead/x:tr">
+    			<xsl:element name="tr" namespace="http://www.w3.org/1999/xhtml" >
+    				<xsl:for-each select="./x:th">
+    				<xsl:element name="th" namespace="http://www.w3.org/1999/xhtml" >
+    						<xsl:copy-of select="node()"/>	
+    				</xsl:element>
+    				</xsl:for-each>
+    			</xsl:element>
+    		</xsl:for-each>
 
-	</xsl:template>
-	
-</xsl:stylesheet>
-'''
-  def transform_table(self,dom):
-    xslt = ET.XML(self.transform_table_xsl())
-    transform = ET.XSLT(xslt)
-    newdom = transform(dom)
-    return newdom
+    		<xsl:for-each select="./x:tbody/x:tr">
+    			<xsl:element name="tr" namespace="http://www.w3.org/1999/xhtml" >
+    				<xsl:for-each select="./x:td/x:p">
+    				<xsl:element name="td" namespace="http://www.w3.org/1999/xhtml" >
+    						<xsl:copy-of select="node()"/>	
+    				</xsl:element>
+    				</xsl:for-each>
+    			</xsl:element>
+    		</xsl:for-each>
 
+
+
+    	</xsl:element>
+
+    	</xsl:element>
+
+    </xsl:template>
     
-  def transform_code_section(self,dom):
-    theme = self.config['default']['code_theme']
-    title = ''
-    xslt = ET.XML(self.transform_code_section_xsl())
-    transform = ET.XSLT(xslt)
-    # Sets two variables for the XSL template 
-    newdom = transform(dom, theme=ET.XSLT.strparam(theme), title=ET.XSLT.strparam(title))
+</xsl:stylesheet>
+'''
+    def transform_table(self, dom):
+        xslt = ET.XML(self.transform_table_xsl())
+        transform = ET.XSLT(xslt)
+        newdom = transform(dom)
+        return newdom
 
-    elements = newdom.xpath("//ac:parameter[@ac:name='language']", namespaces=self.namespaces)
-    for element in elements:
-      value = element.text.lower()
-      if value == "python" or value=='python3':
-          value = "py"
-      elif value == "yaml":
-          value = "yml"
-      element.text = value
+    def transform_code_section(self, dom):
+        theme = self.config['default']['code_theme']
+        title = ''
+        xslt = ET.XML(self.transform_code_section_xsl())
+        transform = ET.XSLT(xslt)
+        # Sets two variables for the XSL template
+        newdom = transform(dom, theme=ET.XSLT.strparam(theme), title=ET.XSLT.strparam(title))
 
-    return newdom
+        elements = newdom.xpath("//ac:parameter[@ac:name='language']", namespaces=self.namespaces)
+        for element in elements:
+            value = element.text.lower()
+            if value == "python" or value == 'python3':
+                value = "py"
+            elif value == "yaml":
+                value = "yml"
+            element.text = value
+        return newdom
 
-  def extract_content(self,dom):
-    xslt = ET.XML(self.extract_content_div_xsl())
-    transform = ET.XSLT(xslt)
-    newdom = transform(dom)
-    return newdom
+    def extract_content(self, dom):
+        xslt = ET.XML(self.extract_content_div_xsl())
+        transform = ET.XSLT(xslt)
+        newdom = transform(dom)
+        return newdom
 
-  def create_standard_attachment(self, filename):
-    new_ac_element = ET.Element('{http://www.atlassian.com/schema/confluence/4/ac/}image', nsmap=self.namespaces)
-    new_ri_element = ET.SubElement(new_ac_element, 
-         '{http://www.atlassian.com/schema/confluence/4/ri/}attachment', 
-        {'{http://www.atlassian.com/schema/confluence/4/ri/}filename': filename },
-                nsmap=self.namespaces)
-    return new_ac_element
+    def create_standard_attachment(self, filename):
+        new_ac_element = ET.Element('{http://www.atlassian.com/schema/confluence/4/ac/}image', nsmap=self.namespaces)
+        new_ri_element = ET.SubElement(new_ac_element,
+             '{http://www.atlassian.com/schema/confluence/4/ri/}attachment',
+            {'{http://www.atlassian.com/schema/confluence/4/ri/}filename': filename},
+                    nsmap=self.namespaces)
+        return new_ac_element
 
-  def create_macro_attachment(self, filename, height="250"):
-    new_ac_element = ET.Element('{http://www.atlassian.com/schema/confluence/4/ac/}structured-macro', 
-        {'{http://www.atlassian.com/schema/confluence/4/ac/}name':          'view-file',
-         '{http://www.atlassian.com/schema/confluence/4/ac/}schema-version':'1' },
-        nsmap=self.namespaces)
+    def create_macro_attachment(self, filename, height="250"):
+        new_ac_element = ET.Element('{http://www.atlassian.com/schema/confluence/4/ac/}structured-macro',
+            {'{http://www.atlassian.com/schema/confluence/4/ac/}name':          'view-file',
+             '{http://www.atlassian.com/schema/confluence/4/ac/}schema-version':'1'},
+            nsmap=self.namespaces)
 
-    new_ac_parameter_element = ET.SubElement(new_ac_element, 
-         '{http://www.atlassian.com/schema/confluence/4/ac/}parameter', 
-        {'{http://www.atlassian.com/schema/confluence/4/ac/}name': 'name' },
-                nsmap=self.namespaces)
+        new_ac_parameter_element = ET.SubElement(new_ac_element,
+             '{http://www.atlassian.com/schema/confluence/4/ac/}parameter',
+            {'{http://www.atlassian.com/schema/confluence/4/ac/}name': 'name'},
+                    nsmap=self.namespaces)
 
-    new_ri_element = ET.SubElement(new_ac_parameter_element, 
-         '{http://www.atlassian.com/schema/confluence/4/ri/}attachment', 
-        {'{http://www.atlassian.com/schema/confluence/4/ri/}filename': filename },
-                nsmap=self.namespaces)
+        new_ri_element = ET.SubElement(new_ac_parameter_element,
+             '{http://www.atlassian.com/schema/confluence/4/ri/}attachment',
+            {'{http://www.atlassian.com/schema/confluence/4/ri/}filename': filename},
+                    nsmap=self.namespaces)
 
-    new_ac_parameter2_element = ET.SubElement(new_ac_element, 
-         '{http://www.atlassian.com/schema/confluence/4/ac/}parameter', 
-        {'{http://www.atlassian.com/schema/confluence/4/ac/}name': 'height' },
-                nsmap=self.namespaces)
-    new_ac_parameter2_element.text = height
-    return new_ac_element
+        new_ac_parameter2_element = ET.SubElement(new_ac_element,
+             '{http://www.atlassian.com/schema/confluence/4/ac/}parameter',
+            {'{http://www.atlassian.com/schema/confluence/4/ac/}name': 'height'},
+                    nsmap=self.namespaces)
+        new_ac_parameter2_element.text = height
+        return new_ac_element
 
-  def img_query(self,dom):
-    result =  dom.xpath('/xhtml:html/xhtml:body//xhtml:img', namespaces=self.namespaces)
-    return result
+    def img_query(self, dom):
+        result = dom.xpath('/xhtml:html/xhtml:body//xhtml:img', namespaces=self.namespaces)
+        return result
 
-  def xxx(self,dom):
-    img_list = self.img_query(dom)
-    for img in img_list:
-        src = img.attrib['src']
-        # Only basename 
-        src = os.path.basename(src)
-        src = unquote(src)
+    def xxx(self, dom):
+        img_list = self.img_query(dom)
+        for img in img_list:
+            src = img.attrib['src']
+            # Only basename
+            src = os.path.basename(src)
+            src = unquote(src)
 
-        parent = img.getparent()
-        if src.endswith('pptx') or src.endswith('pdf'):
-            new_ac_element = self.create_macro_attachment(src)
-        else:
-            new_ac_element = self.create_standard_attachment(src)
-        parent.replace(img,new_ac_element)
+            parent = img.getparent()
+            if src.endswith('pptx') or src.endswith('pdf'):
+                new_ac_element = self.create_macro_attachment(src)
+            else:
+                new_ac_element = self.create_standard_attachment(src)
+            parent.replace(img, new_ac_element)
 
-  def extract_img_source(self,dom):
-    image_src_list  =  dom.xpath('/xhtml:html/xhtml:body//xhtml:img/@src', namespaces=self.namespaces)
+    def extract_img_source(self, dom):
+        image_src_list = dom.xpath('/xhtml:html/xhtml:body//xhtml:img/@src', namespaces=self.namespaces)
 
-    image_src_list2 = []
-    for img in image_src_list:
-        img2 = unquote(img)
-        image_src_list2.append(img2)
-    self.image_src_list = image_src_list2
+        image_src_list2 = []
+        for img in image_src_list:
+            img2 = unquote(img)
+            image_src_list2.append(img2)
+        self.image_src_list = image_src_list2
 
-  def get_image_src_list(self):
-    return self.image_src_list
+    def get_image_src_list(self):
+        return self.image_src_list
 
-  def extract_a_source(self,dom):
-    self.a_href_list  =  dom.xpath('/xhtml:html/xhtml:body//xhtml:a/@href', namespaces=self.namespaces)
+    def extract_a_source(self, dom):
+        self.a_href_list = dom.xpath('/xhtml:html/xhtml:body//xhtml:a/@href', namespaces=self.namespaces)
 
-  def get_a_href_list(self):
-    return self.a_href_list
- 
-  def process_asciidoctor_dom(self, dom):
-    self.extract_img_source(dom)
-    self.xxx(dom)
+    def get_a_href_list(self):
+        return self.a_href_list
 
-    newdom1 = self.extract_content(dom)
-    newdom2 = self.transform_code_section(newdom1)
-    #print(ET.tostring(newdom2, pretty_print=True, encoding="UTF-8").decode('utf-8'))
-    newdom3 = self.transform_table(newdom2)
-    #print(ET.tostring(newdom3, pretty_print=True, encoding="UTF-8").decode('utf-8'))
+    def process_asciidoctor_dom(self, dom):
+        self.extract_img_source(dom)
+        self.xxx(dom)
 
-    result = ET.tostring(newdom3, pretty_print=True, encoding="UTF-8").decode('utf-8')
-    return result
+        newdom1 = self.extract_content(dom)
+        newdom2 = self.transform_code_section(newdom1)
+        #print(ET.tostring(newdom2, pretty_print=True, encoding="UTF-8").decode('utf-8'))
+        newdom3 = self.transform_table(newdom2)
+        #print(ET.tostring(newdom3, pretty_print=True, encoding="UTF-8").decode('utf-8'))
 
-  def process_asciidoctor_xml(self,xhtml_textstring):
-    dom     = ET.XML(xhtml_textstring)
-    result  = self.process_asciidoctor_dom(dom)
-    return result 
+        result = ET.tostring(newdom3, pretty_print=True, encoding="UTF-8").decode('utf-8')
+        return result
 
-  def process_confluence_xml(self,xhtml_textstring):
-    dom    = ET.XML(xhtml_textstring)
-    result = ET.tostring(newdom2, pretty_print=True, encoding="UTF-8").decode('utf-8')
-    return result 
+    def process_asciidoctor_xml(self, xhtml_textstring):
+        dom = ET.XML(xhtml_textstring)
+        result = self.process_asciidoctor_dom(dom)
+        return result
 
-  def process_file(self, filename):
-    dom    = ET.parse(filename)
-    xhtml  = dom.getroot()
-    result = self.process_dom(xhtml)
-    return result 
+    def process_confluence_xml(self, xhtml_textstring):
+        dom = ET.XML(xhtml_textstring)
+        result = ET.tostring(newdom2, pretty_print=True, encoding="UTF-8").decode('utf-8')
+        return result
+
+    def process_file(self, filename):
+        dom = ET.parse(filename)
+        xhtml = dom.getroot()
+        result = self.process_dom(xhtml)
+        return result
 
 
 class NETRC:
 
-    def __init__(self,filepath):
+    def __init__(self, filepath):
         if os.path.isfile(filepath):
             self.netRC = netrc.netrc(filepath)
         else:
             self.netRC = None
 
-    def get_entry(self,hostname):
+    def get_entry(self, hostname):
         if self.netRC is None:
-            return (None,None,None)
+            return (None, None, None)
         return self.netRC.authenticators(hostname)
 
 class ToolConfiguration2:
 
-    def merge(self,filepath,configuration_default):
-
+    def merge(self, filepath, configuration_default):
         z = configuration_default.copy()
-
-        configParser= ConfigParser()
-        config      = configParser.read(filepath)
-
+        configParser = ConfigParser()
+        config = configParser.read(filepath)
         for section_name in configParser.sections():
-            hash={}
+            hash = {}
             for option in configParser.options(section_name):
-                hash[option]=configParser.get(section_name,option)
+                hash[option] = configParser.get(section_name, option)
             z[section_name] = hash
         return z
-
-
 
 class ShellCmd(object):
 
@@ -656,25 +648,24 @@ class ShellCmd(object):
         return io.TextIOWrapper(stream, encoding='utf-8')
 
     def read_stream(self, stream):
-       return stream.read()
+        return stream.read()
 
     def execute(self, args):
-        proc            = self.subprocess(args)
-        input_stream    = self.get_input_stream(proc.stdout)
-        content         = self.read_stream(input_stream)
-        self.exit_code  = proc.wait()
+        proc = self.subprocess(args)
+        input_stream = self.get_input_stream(proc.stdout)
+        content = self.read_stream(input_stream)
+        self.exit_code = proc.wait()
         return content
 
 class Confluence(object):
     def __init__(self, netRC, config):
-
         self.config = config
 
-        base_url  = config['default']['base_url']
+        base_url = config['default']['base_url']
         space_key = config['default']['space_key']
 
-        result          = urlparse(base_url)
-        hostname        = result.netloc.split(":")[0]
+        result = urlparse(base_url)
+        hostname = result.netloc.split(":")[0]
 
         array = netRC.authenticators(hostname)
 
@@ -683,14 +674,14 @@ class Confluence(object):
             exit(2)
 
         self.HOSTNAME = hostname
-        
-        login,account,password = array
-        self.http   = HTTP(login + ":" + password)
-        self.c      = ConfluenceRestAPI(self.http, base_url,space_key)
-        self.cache  = {}
 
-    def json_pretty_print(self,json_data):
-        result      = json.dumps(json_data, indent=2)
+        login, account, password = array
+        self.http = HTTP(login + ":" + password)
+        self.c = ConfluenceRestAPI(self.http, base_url, space_key)
+        self.cache = {}
+
+    def json_pretty_print(self, json_data):
+        result = json.dumps(json_data, indent=2)
         print(result)
 
     def parse_cmdline(self):
@@ -702,19 +693,19 @@ class Confluence(object):
         return parsed_args
 
     def filename_to_title(self, name):
-        basename= os.path.basename(name)
+        basename = os.path.basename(name)
         title = ('.').join(basename.split('.')[:-1])  # Remove .txt or .xml extension
         if title == "":
             title = basename
         return title
 
-    def relpath_to_lookup_name(self,relpath):
+    def relpath_to_lookup_name(self, relpath):
         return relpath
 
-    def parse_path(self,path):
-        result=""
-        stack=[]
-        expect_number=False
+    def parse_path(self, path):
+        result = ""
+        stack = []
+        expect_number = False
         for c in path:
             if expect_number:
                 if c == ']':
@@ -728,8 +719,8 @@ class Confluence(object):
             else:
                 if c == '[':
                     stack.append(result)
-                    result=""
-                    expect_number=True
+                    result = ""
+                    expect_number = True
                     continue
                 if c == '.':
                     if result != "":
@@ -742,8 +733,8 @@ class Confluence(object):
         stack.append(result)
         return stack
 
-    def get_element_by_path(self,path,lookup):
-        elements = self.parse_path(path) 
+    def get_element_by_path(self, path, lookup):
+        elements = self.parse_path(path)
         for element in elements:
             if element.isdigit():
                 pos = int(element)
@@ -758,43 +749,41 @@ class Confluence(object):
 
         return lookup
 
-    def read_from_asciidoctor(self,filename):
+    def read_from_asciidoctor(self, filename):
         shellCmd = ShellCmd()
-        args = [ 'asciidoctor',  '-b', 'xhtml5',  '-o', '-',  filename ]
+        args = ['asciidoctor', '-b', 'xhtml5', '-o', '-', filename]
 #        args = [ 'asciidoctor', '-s', '-b', 'xhtml5',  '-o', '-',  filename ]
 #        args = [ 'asciidoctor','-s','-d','book','-b', 'xhtml5',  '-o', '-',  filename ]
         content = shellCmd.execute(args)
         return content
 
     def get_ancestor_id(self, title):
-        json_data   = self.c.version(title)
-        ancestor_id = self.get_element_by_path("results[0].id",json_data)
+        json_data = self.c.version(title)
+        ancestor_id = self.get_element_by_path("results[0].id", json_data)
         return ancestor_id
 
-    def get_cached_ancestor_id(self,title):
+    def get_cached_ancestor_id(self, title):
         if title in self.cache:
-            ancestor_id      = self.cache[title]
+            ancestor_id = self.cache[title]
         else:
-            ancestor_id      = self.get_ancestor_id(title)
-            self.cache[title]= ancestor_id
+            ancestor_id = self.get_ancestor_id(title)
+            self.cache[title] = ancestor_id
 
         return ancestor_id
 
     def publish(self, title, content, ancestor_id):
-        json_result  = self.c.version(title)
+        json_result = self.c.version(title)
         if not json_result.get('results', None):
-            json_result2 = self.c.create_page(title,content,ancestor_id)
+            json_result2 = self.c.create_page(title, content, ancestor_id)
         else:
-            id      = self.get_element_by_path("results[0].id",json_result)
-            version = self.get_element_by_path("results[0].version.number",json_result)
-            version = version + 1 
-            json_result2 = self.c.update_page(id,version,title,content,ancestor_id)
-
-        return json_result2 
-
+            id = self.get_element_by_path("results[0].id", json_result)
+            version = self.get_element_by_path("results[0].version.number", json_result)
+            version = version + 1
+            json_result2 = self.c.update_page(id, version, title, content, ancestor_id)
+        return json_result2
 
     def process_file(self, filename, parent_page_title=None):
-        title   = self.filename_to_title(filename)
+        title = self.filename_to_title(filename)
         abspath = os.path.dirname(os.path.abspath(filename))
 
         if abspath == self.config['internal']['root_dir']:
@@ -804,23 +793,22 @@ class Confluence(object):
 
         if parent_page_title is None and relpath != "":
             parent_page_title = self.relpath_to_lookup_name(relpath)
-            parent_page_title= os.path.basename(parent_page_title)
-        
-        ancestor_id = self.get_cached_ancestor_id(parent_page_title)
+            parent_page_title = os.path.basename(parent_page_title)
 
+        ancestor_id = self.get_cached_ancestor_id(parent_page_title)
 
         xml, image_src_list = self.file_to_xml(filename)
 
-        message = "Publishing '{0}' to '{1}'".format(title,self.HOSTNAME)
+        message = "Publishing '{0}' to '{1}'".format(title, self.HOSTNAME)
         if parent_page_title:
             message = message + " under parent page '{0}'".format(parent_page_title)
 
-        result  = self.publish(title,xml,ancestor_id)
-        id      = result["id"]
+        result = self.publish(title, xml, ancestor_id)
+        id = result["id"]
 
         for img in image_src_list:
             print("  Appending image '{0}'".format(img))
-            self.c.attach_file_to_page(id,img,"initial")
+            self.c.attach_file_to_page(id, img, "initial")
 
     def file_to_xml(self, filename):
         fix = ConfluenceFixes(self.config)
@@ -833,92 +821,91 @@ class Confluence(object):
             xhtml = self.read_from_asciidoctor(filename)
             xhtml = fix.process_asciidoctor_xml(xhtml)
 
-        return ( xhtml, fix.get_image_src_list())
+        return (xhtml, fix.get_image_src_list())
 
 
-    def dump(self,filename, page_name):
-      json_data = self.c.version(page_name)
-      ancestor_id = self.get_element_by_path("results[0].id",json_data)
-      result = self.c.dump(ancestor_id)
-      body  = self.get_element_by_path("body.storage.value", result)
-      print(body)
+    def dump(self, filename, page_name):
+        json_data = self.c.version(page_name)
+        ancestor_id = self.get_element_by_path("results[0].id", json_data)
+        result = self.c.dump(ancestor_id)
+        body = self.get_element_by_path("body.storage.value", result)
+        print(body)
 
-    def dump_xhtml(self,filename):
-        xhtml   = self.read_from_asciidoctor(filename)
+    def dump_xhtml(self, filename):
+        xhtml = self.read_from_asciidoctor(filename)
         print(xhtml)
         if xhtml == "":
-            return 
+            return
         fix = ConfluenceFixes(self.config)
         xhtml2 = fix.process_asciidoctor_xml(xhtml)
         print(xhtml2)
- 
+
     def run(self):
         parsed_args = self.parse_cmdline()
         #print(parsed_args)
         if 'dump' in parsed_args:
-          for filename in parsed_args.file:
-            self.dump(filename,parsed_args.dump)
-          return 
+            for filename in parsed_args.file:
+                self.dump(filename, parsed_args.dump)
+            return
 
         for filename in parsed_args.file:
-            self.process_file(filename,parsed_args.parent_page_title)
+            self.process_file(filename, parsed_args.parent_page_title)
 
 def load_netrc():
-  home_directory = os.environ['HOME']
-  filepath = os.path.join(home_directory, '.netrc' )
-  if not os.path.isfile(filepath):
-    print("Not found: "+filepath)
-    exit(1)
-  return netrc.netrc(filepath)
+    home_directory = os.environ['HOME']
+    filepath = os.path.join(home_directory, '.netrc')
+    if not os.path.isfile(filepath):
+        print("Not found: "+filepath)
+        exit(1)
+    return netrc.netrc(filepath)
 
 class SimpleConfiguration:
-  def __init__(self, directory_name='.confluence-asciidoctor', configfile_name='config'):
-      self.directory_name   = directory_name
-      self.configfile_name  = configfile_name
+    def __init__(self, directory_name='.confluence-asciidoctor', configfile_name='config'):
+        self.directory_name = directory_name
+        self.configfile_name = configfile_name
+        self.configuration = self.init(os.getcwd())
 
-      self.configuration    = self.init(os.getcwd())
+    # provide an abspath to the repo or a file in the repo
+    def init(self, abspath):
+        configuration = {}
+        work_dir = os.getcwd()
+        configuration['work_dir'] = work_dir
 
-  # provide an abspath to the repo or a file in the repo 
-  def init(self, abspath):
-    configuration = {}
-    work_dir = os.getcwd()
-    configuration['work_dir']   = work_dir
-    
-    # The directory where the hidden "."-directory resides is the root_dir
+        # The directory where the hidden "."-directory resides is the root_dir
 
-    config_dir = self.find_root_init(work_dir, self.directory_name )
-    if config_dir is None:
-        root_dir   = work_dir
-        config_dir = os.path.join(root_dir, self.directory_name)
-    else:
-        root_dir = os.path.dirname(config_dir)
+        config_dir = self.find_root_init(work_dir, self.directory_name)
+        if config_dir is None:
+            root_dir = work_dir
+            config_dir = os.path.join(root_dir, self.directory_name)
+        else:
+            root_dir = os.path.dirname(config_dir)
 
-    configuration["root_dir"]   = root_dir
-    configuration["config_dir"] = config_dir
+        configuration["root_dir"] = root_dir
+        configuration["config_dir"] = config_dir
 
-    config_file = os.path.join(config_dir, self.configfile_name)
-    configuration["config_file"] = config_file
+        config_file = os.path.join(config_dir, self.configfile_name)
+        configuration["config_file"] = config_file
 
-    self.__dict__ =  configuration
+        self.__dict__ = configuration
 
-  def find_root_init(self, abspath, config_dir):
-    # Check existence , if not try root dir
-    while not os.path.exists(abspath):
-      abspath = os.path.dirname(abspath)
-  
-    # If it is a file, use parent dir
-    if not os.path.isdir(abspath):
-       abspath = os.path.dirname(abspath)
-    
-    return self.find_root(abspath, config_dir )
-  
-  def find_root(self, dirpath, config_dir):
-    while dirpath != os.sep:
-      target_dir = os.path.join(dirpath, config_dir)
-      if os.path.isdir(target_dir):
-        return target_dir
-      dirpath =  os.path.dirname(dirpath)
-    return None
+    def find_root_init(self, abspath, config_dir):
+        # Check existence , if not try root dir
+        while not os.path.exists(abspath):
+            abspath = os.path.dirname(abspath)
+
+        # If it is a file, use parent dir
+        if not os.path.isdir(abspath):
+            abspath = os.path.dirname(abspath)
+
+        return self.find_root(abspath, config_dir)
+
+    def find_root(self, dirpath, config_dir):
+        while dirpath != os.sep:
+            target_dir = os.path.join(dirpath, config_dir)
+            if os.path.isdir(target_dir):
+                return target_dir
+            dirpath = os.path.dirname(dirpath)
+        return None
 
 
 def default_config():
@@ -932,25 +919,25 @@ code_theme=Confluence
 def get_internal_default_config():
     config_content = default_config()
     if PYTHON_VERSION == 3:
-        config_parser  = ConfigParser(interpolation=ExtendedInterpolation())
+        config_parser = ConfigParser(interpolation=ExtendedInterpolation())
         config_parser.read_string(config_content)
     else:
-        config_parser  = ConfigParser()
+        config_parser = ConfigParser()
         config_parser.readfp(io.BytesIO(config_content))
 
     return serialize_config(config_parser)
- 
+
 def serialize_config(config_parser):
-    result_hash={}
+    result_hash = {}
     for section_name in config_parser.sections():
-        section_hash={}
+        section_hash = {}
         for option in config_parser.options(section_name):
-            section_hash[option]=config_parser.get(section_name,option)
+            section_hash[option] = config_parser.get(section_name, option)
         result_hash[section_name] = section_hash
     return result_hash
 
 def parse_cmdline():
-    parser = argparse.ArgumentParser( "main" )
+    parser = argparse.ArgumentParser("main")
     # no arguments given, print help
     if len(sys.argv) < 2:
         parser.print_help()
@@ -964,7 +951,7 @@ def parse_cmdline():
 
     # Publish page
     if PYTHON_VERSION == 2:
-        parser_publish = subparsers.add_parser('publish',  help='publish help')
+        parser_publish = subparsers.add_parser('publish', help='publish help')
     else:
         parser_publish = subparsers.add_parser('publish', aliases=['pu'], help='publish help')
     parser_publish.add_argument('-p', '--parent-page-title', metavar='parent_page_title', help='title of the parent page')
@@ -986,11 +973,11 @@ def parse_cmdline():
     parser_dumpxhtml = subparsers.add_parser('dumpxhtml', help='dump xhtml')
     parser_dumpxhtml.add_argument('file', help='file')
 
-    # initialize environment  
+    # initialize environment
     parser_init = subparsers.add_parser('init', help='init')
-    parser_init.add_argument('--url', default='http://127.0.0.1/display/EXAMPLE',  help='url')
+    parser_init.add_argument('--url', default='http://127.0.0.1/display/EXAMPLE', help='url')
 
-    parsed_args    = parser.parse_args()
+    parsed_args = parser.parse_args()
 
     # make command canonical
 
@@ -1001,76 +988,75 @@ def parse_cmdline():
 
     return parsed_args
 
-def merge_dict_deep(target,source):
+def merge_dict_deep(target, source):
     orig = target
     target = orig.copy()
     for key in source.keys():
         if key in target.keys():
             value_target = target[key]
             value_source = source[key]
-            if isinstance(value_target,dict) and isinstance(value_source,dict):
-                result = merge_dict_deep(value_target,value_source)
+            if isinstance(value_target, dict) and isinstance(value_source, dict):
+                result = merge_dict_deep(value_target, value_source)
                 target[key] = result
             else:
                 target[key] = value_source
         else:
-          target[key] = source[key]
-            
+            target[key] = source[key]
+
     return target
 
 
 if __name__ == "__main__":
     default_config = get_internal_default_config()
-    simple_config  = SimpleConfiguration()
+    simple_config = SimpleConfiguration()
 
     parsed_args = parse_cmdline()
     if parsed_args.code_theme:
-        default_config['default']['code_theme']=parsed_args.code_theme
+        default_config['default']['code_theme'] = parsed_args.code_theme
 
     if parsed_args.command == 'init':
-      if not os.path.exists(simple_config.config_dir):
-          os.mkdir(simple_config.config_dir)
+        if not os.path.exists(simple_config.config_dir):
+            os.mkdir(simple_config.config_dir)
 
-      match = re.match(r'^(.*)?/display/([^/]+)', parsed_args.url)
-      if match:
-          base_url, space_key = match.groups()
-      else:
-        print("Could not match url: " + parsed_args.url)
-        exit(1)
- 
-      if not os.path.exists(simple_config.config_file):
-        f = open(simple_config.config_file, "w")
-        f.write("[default]\nbase_url={0}\nspace_key={1}\ncode_theme=Confluence\n".format(base_url,space_key))
-        f.close()
-      exit(0)
+        match = re.match(r'^(.*)?/display/([^/]+)', parsed_args.url)
+        if match:
+            base_url, space_key = match.groups()
+        else:
+            print("Could not match url: " + parsed_args.url)
+            exit(1)
+
+        if not os.path.exists(simple_config.config_file):
+            f = open(simple_config.config_file, "w")
+            f.write("[default]\nbase_url={0}\nspace_key={1}\ncode_theme=Confluence\n".format(base_url, space_key))
+            f.close()
+        exit(0)
 
     default_config['internal'] = simple_config.__dict__
 
     if not os.path.exists(simple_config.config_file):
-      print("No config found. confluence-asciidoctor init might be required")
-      exit(0)
+        print("No config found. confluence-asciidoctor init might be required")
+        exit(0)
 
-    configParser= ConfigParser()
+    configParser = ConfigParser()
     configParser.read(simple_config.config_file)
-    file_config= serialize_config(configParser)
-    # merge file_config into default_config 
-    default_config = merge_dict_deep(default_config,file_config)
+    file_config = serialize_config(configParser)
+    # merge file_config into default_config
+    default_config = merge_dict_deep(default_config, file_config)
 
     #print(default_config)
 
-    netRC      = load_netrc()
-    confluence = Confluence(netRC,default_config)
+    netRC = load_netrc()
+    confluence = Confluence(netRC, default_config)
 
     if parsed_args.command == 'download':
-        confluence.dump("",parsed_args.page_title)
+        confluence.dump("", parsed_args.page_title)
 
     if parsed_args.command == 'publish':
         for filename in parsed_args.file:
-            confluence.process_file(filename,parsed_args.parent_page_title)
+            confluence.process_file(filename, parsed_args.parent_page_title)
 
     if parsed_args.command == 'dumpxhtml':
         confluence.dump_xhtml(parsed_args.file)
 
     if parsed_args.command == 'dump':
         confluence.dump("", parsed_args.page_title)
-
