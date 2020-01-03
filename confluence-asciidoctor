@@ -32,9 +32,9 @@ import netrc
 import io
 import argparse
 import subprocess
+from   io import StringIO # According to pylint before lxml
 import lxml.etree as ET
 
-from io             import StringIO
 
 # do not raise exceptions on these return codes
 
@@ -323,14 +323,14 @@ class ConfluenceRestAPI(object):
 
         if not os.path.exists(filepath):
             print("Attachment File does not exist: " + filepath)
-            return
+            return None
         json_result = self.list_attachments(id)
 
         for result in json_result['results']:
             existing_filename = result['title']
             if os.path.basename(filepath) == existing_filename:
                 print("Attachment already exists(skipped): " + str(existing_filename))
-                return
+                return None
         print("Uploading attachment: " + filepath)
         return self.attach_file(id, filepath, comment)
 
@@ -625,12 +625,12 @@ class ToolConfiguration2:
     def merge(self, filepath, configuration_default):
         result_configuration = configuration_default.copy()
         config_parser = ConfigParser()
-        config = config_parser.read(filepath)
+        config_parser.read(filepath)
         for section_name in config_parser.sections():
-            hash = {}
+            my_dict = {}
             for option in config_parser.options(section_name):
-                hash[option] = config_parser.get(section_name, option)
-            result_configuration[section_name] = hash
+                my_dict[option] = config_parser.get(section_name, option)
+            result_configuration[section_name] = my_dict
         return result_configuration
 
 class ShellCmd(object):
@@ -866,9 +866,8 @@ class SimpleConfiguration:
         self.configuration = self.init(os.getcwd())
 
     # provide an abspath to the repo or a file in the repo
-    def init(self, abspath):
+    def init(self, work_dir):
         configuration = {}
-        work_dir = os.getcwd()
         configuration['work_dir'] = work_dir
 
         # The directory where the hidden "."-directory resides is the root_dir
@@ -1008,7 +1007,7 @@ def merge_dict_deep(target, source):
     return target
 
 
-if __name__ == "__main__":
+def main():
     default_config = get_internal_default_config()
     simple_config = SimpleConfiguration()
 
@@ -1054,11 +1053,14 @@ if __name__ == "__main__":
         confluence.dump("", parsed_args.page_title)
 
     if parsed_args.command == 'publish':
-        for filename in parsed_args.file:
-            confluence.process_file(filename, parsed_args.parent_page_title)
+        for filename_iterator in parsed_args.file:
+            confluence.process_file(filename_iterator, parsed_args.parent_page_title)
 
     if parsed_args.command == 'dumpxhtml':
         confluence.dump_xhtml(parsed_args.file)
 
     if parsed_args.command == 'dump':
         confluence.dump("", parsed_args.page_title)
+
+if __name__ == "__main__":
+    main()
