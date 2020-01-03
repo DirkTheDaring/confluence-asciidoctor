@@ -34,6 +34,8 @@ import argparse
 import subprocess
 from   io import StringIO # According to pylint before lxml
 import lxml.etree as ET
+#import xml
+#import xml.etree.ElementTree as ET
 
 
 # do not raise exceptions on these return codes
@@ -608,22 +610,34 @@ class ConfluenceFixes:
         result = self.process_asciidoctor_dom(dom)
         return result
 
+    # FIXME processing of snippets for confluence 
     @staticmethod
     def process_confluence_xml(xhtml_textstring):
-        ET.register_namespace( "xhtml",   "http://www.w3.org/1999/xhtml")
-        ET.register_namespace(    "ac",   "http://www.atlassian.com/schema/confluence/4/ac/")
-        ET.register_namespace(    "ri",   "http://www.atlassian.com/schema/confluence/4/ri/")
+        #ET.register_namespace( "xhtml",   "http://www.w3.org/1999/xhtml")
+        #ET.register_namespace(    "ac",   "http://www.atlassian.com/schema/confluence/4/ac/")
+        #ET.register_namespace(    "ri",   "http://www.atlassian.com/schema/confluence/4/ri/")
+        xmlns = {
+#                "xhtml":    "http://www.w3.org/1999/xhtml",
+                "ac":       "http://www.atlassian.com/schema/confluence/4/ac/",
+                "ri":       "http://www.atlassian.com/schema/confluence/4/ri/"
+        }
+        list  = []
+        for key, value in xmlns.items():
+            list.append("=".join([ "xmlns:" + key, "\"" + value +"\""]))
 
-        dom = ET.XML(xhtml_textstring)
+        namespace_string = " ".join(list)
+        namespace_string = namespace_string + " xmlns=\"http://www.w3.org/1999/xhtml\""
+
+        xhtml_textstring ='<!DOCTYPE ac:root SYSTEM "test" [ <!ENTITY szlig "ß"> <!ENTITY nbsp " "><!ENTITY ouml "ö"><!ENTITY uuml "ü"><!ENTITY auml "ä">]>' + "<ac:root " + namespace_string + ">" + xhtml_textstring + "</ac:root>"
+        dom = ET.fromstring(xhtml_textstring)
+        #parser = ET.HTMLParser()
+        #dom    = ET.parse(StringIO(xhtml_textstring), parser)
         result = ET.tostring(dom, pretty_print=True, encoding="UTF-8").decode('utf-8')
+        print(result)
+        print("FIXME, you need to program the return value")
+        exit(0)
         return result
 
-#    def process_file(self, filename):
-#        dom = ET.parse(filename)
-#        xhtml = dom.getroot()
-#        result = self.process_dom(xhtml)
-#        return result
-#
 
 class NETRC:
 
