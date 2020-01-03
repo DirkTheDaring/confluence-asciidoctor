@@ -40,11 +40,16 @@ import lxml.etree as ET
 
 if PYTHON_VERSION == 2:
     class HTTPErrorHandlerExtension(urllib2.BaseHandler):
-        def http_error_201(self, request, response, code, msg, hdrs):
+        @staticmethod
+        def http_error_201(request, response, code, msg, hdrs):
             return response
-        def http_error_204(self, request, response, code, msg, hdrs):
+
+        @staticmethod
+        def http_error_204(request, response, code, msg, hdrs):
             return response
-        def http_error_206(self, request, response, code, msg, hdrs):
+
+        @staticmethod
+        def http_error_206(request, response, code, msg, hdrs):
             return response
 
     class HTTP(object):
@@ -64,7 +69,8 @@ if PYTHON_VERSION == 2:
             for key in headers.keys():
                 request.add_header(key, headers[key])
 
-        def handle_response(self, request):
+        @staticmethod
+        def handle_response(request):
             response_status = request.getcode()
             if response_status != 200:
                 print(response_status)
@@ -164,7 +170,8 @@ elif PYTHON_VERSION == 3:
             self.headers = urllib3.util.make_headers(basic_auth=basic_auth)
             self.headers['Content-Type'] = 'application/json'
 
-        def get_proxy_url(self):
+        @staticmethod
+        def get_proxy_url():
             for NAME in ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy']:
                 value = os.environ.get(NAME)
                 if value is not None:
@@ -180,7 +187,8 @@ elif PYTHON_VERSION == 3:
                 headers_new[key] = headers[key]
             return headers_new
 
-        def handle_response(self, response):
+        @staticmethod
+        def handle_response(response):
             if response.status != 200:
                 print(response.status)
                 #print(vars(response))
@@ -227,7 +235,8 @@ class ConfluenceRestAPI(object):
     def build_url(self, param_dict):
         return self.base_url + '/rest/api/content?' + urlencode(param_dict)
 
-    def handle_json(self, result):
+    @staticmethod
+    def handle_json(result):
         if result is None:
             return {}
         return json.loads(result)
@@ -256,17 +265,18 @@ class ConfluenceRestAPI(object):
         url = self.build_url({'spaceKey':self.space_key, 'expand':expand, 'title':title})
         return self.GET_JSON(url)
 
-    def dump(self, id):
-        url = self.base_url + '/rest/api/content/' + id + '?expand=body.storage'
+    def dump(self, page_id):
+        url = self.base_url + '/rest/api/content/' + page_id + '?expand=body.storage'
         return self.GET_JSON(url)
 
-    def merge_dict(self, orig_dict, new_dict):
+    @staticmethod
+    def merge_dict(orig_dict, new_dict):
         result_dict = orig_dict.copy()
         result_dict.update(new_dict)
         return result_dict
 
     def create_page(self, title, xhtml, ancestor_id=None):
-        dict = {
+        my_dict = {
             'type'   : 'page',
             'title'  : title,
             'space'  : {'key' : self.space_key},
@@ -276,14 +286,14 @@ class ConfluenceRestAPI(object):
             dict2 = {'ancestors': [{'type':'page', 'id': ancestor_id}]}
             # Merge dict
             #dict = { **dict, **dict2}
-            dict = self.merge_dict(dict, dict2)
+            my_dict = self.merge_dict(my_dict, dict2)
 
         url = self.base_url + '/rest/api/content/'
-        return self.POST_JSON(url, dict)
+        return self.POST_JSON(url, my_dict)
 
-    def update_page(self, id, version, title, value, ancestor_id=None):
-        dict = {
-            'id'     : id,
+    def update_page(self, page_id, version, title, value, ancestor_id=None):
+        my_dict = {
+            'id'     : page_id,
             'type'   : 'page',
             'title'  : title,
             'space'  : {'key' : self.space_key},
@@ -294,14 +304,14 @@ class ConfluenceRestAPI(object):
         if ancestor_id is not None:
             dict2 = {'ancestors':[{'type':'page', 'id': ancestor_id}]}
             # Merge dict
-            dict = self.merge_dict(dict, dict2)
+            my_dict = self.merge_dict(my_dict, dict2)
 
-        url = self.base_url + '/rest/api/content/'+id
-        return self.PUT_JSON(url, dict)
+        url = self.base_url + '/rest/api/content/' + page_id
+        return self.PUT_JSON(url, my_dict)
 
 
-    def list_attachments(self, id):
-        url = self.base_url + '/rest/api/content/'+id+"/child/attachment"
+    def list_attachments(self, page_id):
+        url = self.base_url + '/rest/api/content/' + page_id + "/child/attachment"
         return self.GET_JSON(url)
 
     # https://community.atlassian.com/t5/Confluence-questions/How-to-post-attachments-to-confluence-page/qaq-p/214853
@@ -319,12 +329,12 @@ class ConfluenceRestAPI(object):
         result = self.http.POST_FILE(url, headers, fields, filename, 'file')
         return self.handle_json(result)
 
-    def attach_file_to_page(self, id, filepath, comment=""):
+    def attach_file_to_page(self, page_id, filepath, comment=""):
 
         if not os.path.exists(filepath):
             print("Attachment File does not exist: " + filepath)
             return None
-        json_result = self.list_attachments(id)
+        json_result = self.list_attachments(page_id)
 
         for result in json_result['results']:
             existing_filename = result['title']
@@ -332,7 +342,7 @@ class ConfluenceRestAPI(object):
                 print("Attachment already exists(skipped): " + str(existing_filename))
                 return None
         print("Uploading attachment: " + filepath)
-        return self.attach_file(id, filepath, comment)
+        return self.attach_file(page_id, filepath, comment)
 
 class ConfluenceFixes:
 
@@ -347,7 +357,8 @@ class ConfluenceFixes:
         self.config = config
 
     # This gives the same result as the "-s" switch in asciidoctor for xhtml5
-    def extract_content_div_xsl(self):
+    @staticmethod
+    def extract_content_div_xsl():
         return '''<xsl:stylesheet
             version="1.0"
             xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
@@ -384,7 +395,8 @@ class ConfluenceFixes:
 '''
 
 
-    def transform_code_section_xsl(self):
+    @staticmethod
+    def transform_code_section_xsl():
         return '''
 <xsl:stylesheet
             version="1.0"
@@ -415,7 +427,8 @@ class ConfluenceFixes:
 
 </xsl:stylesheet>
 '''
-    def transform_table_xsl(self):
+    @staticmethod
+    def transform_table_xsl():
         return '''
 <xsl:stylesheet
             version="1.0"
@@ -496,7 +509,7 @@ class ConfluenceFixes:
         elements = newdom.xpath("//ac:parameter[@ac:name='language']", namespaces=self.namespaces)
         for element in elements:
             value = element.text.lower()
-            if value == "python" or value == 'python3':
+            if value in ("python", 'python3'):
                 value = "py"
             elif value == "yaml":
                 value = "yml"
@@ -595,7 +608,8 @@ class ConfluenceFixes:
         result = self.process_asciidoctor_dom(dom)
         return result
 
-    def process_confluence_xml(self, xhtml_textstring):
+    @staticmethod
+    def process_confluence_xml(xhtml_textstring):
         dom = ET.XML(xhtml_textstring)
         result = ET.tostring(dom, pretty_print=True, encoding="UTF-8").decode('utf-8')
         return result
@@ -622,7 +636,8 @@ class NETRC:
 
 class ToolConfiguration2:
 
-    def merge(self, filepath, configuration_default):
+    @staticmethod
+    def merge(filepath, configuration_default):
         result_configuration = configuration_default.copy()
         config_parser = ConfigParser()
         config_parser.read(filepath)
@@ -634,20 +649,25 @@ class ToolConfiguration2:
         return result_configuration
 
 class ShellCmd(object):
+    def __init__(self):
+        self.exit_code = 0
 
-    def subprocess(self, args):
+    @staticmethod
+    def subprocess(args):
         proc = subprocess.Popen(args,
                                 stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE)
         return proc
 
-    def get_input_stream(self, stream):
+    @staticmethod
+    def get_input_stream(stream):
         # Python 2 ( file doesn't work in python3, therefore stringify
         if str(type(stream)) == "<type 'file'>":
             return stream
         return io.TextIOWrapper(stream, encoding='utf-8')
 
-    def read_stream(self, stream):
+    @staticmethod
+    def read_stream(stream):
         return stream.read()
 
     def execute(self, args):
@@ -673,18 +693,20 @@ class Confluence(object):
             print("hostname not found: "+hostname)
             exit(2)
 
-        self.HOSTNAME = hostname
+        self.hostname = hostname
 
         login, account, password = array
         self.http = HTTP(login + ":" + password)
         self.c = ConfluenceRestAPI(self.http, base_url, space_key)
         self.cache = {}
 
-    def json_pretty_print(self, json_data):
+    @staticmethod
+    def json_pretty_print(json_data):
         result = json.dumps(json_data, indent=2)
         print(result)
 
-    def parse_cmdline(self):
+    @staticmethod
+    def parse_cmdline():
         parser = argparse.ArgumentParser("confluence-ascii")
         parser.add_argument('file', metavar='file', nargs='+', help='file')
         parser.add_argument('-p', '--parent-page-title', metavar='parent_page_title', help='title of the parent page')
@@ -692,17 +714,20 @@ class Confluence(object):
         parsed_args = parser.parse_args()
         return parsed_args
 
-    def filename_to_title(self, name):
+    @staticmethod
+    def filename_to_title(name):
         basename = os.path.basename(name)
         title = ('.').join(basename.split('.')[:-1])  # Remove .txt or .xml extension
         if title == "":
             title = basename
         return title
 
-    def relpath_to_lookup_name(self, relpath):
+    @staticmethod
+    def relpath_to_lookup_name(relpath):
         return relpath
 
-    def parse_path(self, path):
+    @staticmethod
+    def parse_path(path):
         result = ""
         stack = []
         expect_number = False
@@ -749,7 +774,8 @@ class Confluence(object):
 
         return lookup
 
-    def read_from_asciidoctor(self, filename):
+    @staticmethod
+    def read_from_asciidoctor(filename):
         shell_cmd = ShellCmd()
         args = ['asciidoctor', '-b', 'xhtml5', '-o', '-', filename]
 #        args = [ 'asciidoctor', '-s', '-b', 'xhtml5',  '-o', '-',  filename ]
@@ -799,7 +825,7 @@ class Confluence(object):
 
         xml, image_src_list = self.file_to_xml(filename)
 
-        message = "Publishing '{0}' to '{1}'".format(title, self.HOSTNAME)
+        message = "Publishing '{0}' to '{1}'".format(title, self.hostname)
         if parent_page_title:
             message = message + " under parent page '{0}'".format(parent_page_title)
 
@@ -900,7 +926,8 @@ class SimpleConfiguration:
 
         return self.find_root(abspath, config_dir)
 
-    def find_root(self, dirpath, config_dir):
+    @staticmethod
+    def find_root(dirpath, config_dir):
         while dirpath != os.sep:
             target_dir = os.path.join(dirpath, config_dir)
             if os.path.isdir(target_dir):
@@ -909,7 +936,7 @@ class SimpleConfiguration:
         return None
 
 
-def default_config():
+def get_default_config():
     return """
 [default]
 base_url=https://example.com/space
@@ -918,7 +945,7 @@ code_theme=Confluence
 """
 
 def get_internal_default_config():
-    config_content = default_config()
+    config_content = get_default_config()
     if PYTHON_VERSION == 3:
         config_parser = ConfigParser(interpolation=ExtendedInterpolation())
         config_parser.read_string(config_content)
@@ -1027,9 +1054,9 @@ def main():
             exit(1)
 
         if not os.path.exists(simple_config.config_file):
-            f = open(simple_config.config_file, "w")
-            f.write("[default]\nbase_url={0}\nspace_key={1}\ncode_theme=Confluence\n".format(base_url, space_key))
-            f.close()
+            file_pointer = open(simple_config.config_file, "w")
+            file_pointer.write("[default]\nbase_url={0}\nspace_key={1}\ncode_theme=Confluence\n".format(base_url, space_key))
+            file_pointer.close()
         exit(0)
 
     default_config['internal'] = simple_config.__dict__
