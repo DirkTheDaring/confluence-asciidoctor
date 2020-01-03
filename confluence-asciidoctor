@@ -597,15 +597,15 @@ class ConfluenceFixes:
 
     def process_confluence_xml(self, xhtml_textstring):
         dom = ET.XML(xhtml_textstring)
-        result = ET.tostring(newdom2, pretty_print=True, encoding="UTF-8").decode('utf-8')
+        result = ET.tostring(dom, pretty_print=True, encoding="UTF-8").decode('utf-8')
         return result
 
-    def process_file(self, filename):
-        dom = ET.parse(filename)
-        xhtml = dom.getroot()
-        result = self.process_dom(xhtml)
-        return result
-
+#    def process_file(self, filename):
+#        dom = ET.parse(filename)
+#        xhtml = dom.getroot()
+#        result = self.process_dom(xhtml)
+#        return result
+#
 
 class NETRC:
 
@@ -624,12 +624,12 @@ class ToolConfiguration2:
 
     def merge(self, filepath, configuration_default):
         z = configuration_default.copy()
-        configParser = ConfigParser()
-        config = configParser.read(filepath)
-        for section_name in configParser.sections():
+        config_parser = ConfigParser()
+        config = config_parser.read(filepath)
+        for section_name in config_parser.sections():
             hash = {}
-            for option in configParser.options(section_name):
-                hash[option] = configParser.get(section_name, option)
+            for option in config_parser.options(section_name):
+                hash[option] = config_parser.get(section_name, option)
             z[section_name] = hash
         return z
 
@@ -637,8 +637,8 @@ class ShellCmd(object):
 
     def subprocess(self, args):
         proc = subprocess.Popen(args,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE)
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE)
         return proc
 
     def get_input_stream(self, stream):
@@ -887,6 +887,8 @@ class SimpleConfiguration:
         configuration["config_file"] = config_file
 
         self.__dict__ = configuration
+        return configuration
+
 
     def find_root_init(self, abspath, config_dir):
         # Check existence , if not try root dir
@@ -1037,9 +1039,9 @@ if __name__ == "__main__":
         print("No config found. confluence-asciidoctor init might be required")
         exit(0)
 
-    configParser = ConfigParser()
-    configParser.read(simple_config.config_file)
-    file_config = serialize_config(configParser)
+    config_parser = ConfigParser()
+    config_parser.read(simple_config.config_file)
+    file_config = serialize_config(config_parser)
     # merge file_config into default_config
     default_config = merge_dict_deep(default_config, file_config)
 
