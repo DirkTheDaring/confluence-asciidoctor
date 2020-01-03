@@ -140,11 +140,11 @@ if PYTHON_VERSION == 2:
             return yielder(), headers
 
         def POST_FILE(self, url, headers, fields, filepath, field_name, filename=None):
-            f = open(filepath, 'rb')
-            fields[field_name] = f
+            file_pointer = open(filepath, 'rb')
+            fields[field_name] = file_pointer
             data, headers = self.multipart_encode(fields)
             result = self.POST(url, data, headers)
-            f.close()
+            file_pointer.close()
             return result
 
 
@@ -207,8 +207,8 @@ elif PYTHON_VERSION == 3:
         def POST_FILE(self, url, headers, fields, filepath, field_name, filename=None):
             headers = self.add_headers(headers)
 
-            with open(filepath, "rb") as fp:
-                data = fp.read()
+            with open(filepath, "rb") as file_pointer:
+                data = file_pointer.read()
 
             if filename is None:
                 filename = os.path.basename(filepath)
@@ -260,10 +260,10 @@ class ConfluenceRestAPI(object):
         url = self.base_url + '/rest/api/content/' + id + '?expand=body.storage'
         return self.GET_JSON(url)
 
-    def merge_dict(self, x, y):
-        z = x.copy()
-        z.update(y)
-        return z
+    def merge_dict(self, orig_dict, new_dict):
+        result_dict = orig_dict.copy()
+        result_dict.update(new_dict)
+        return result_dict
 
     def create_page(self, title, xhtml, ancestor_id=None):
         dict = {
@@ -611,27 +611,27 @@ class NETRC:
 
     def __init__(self, filepath):
         if os.path.isfile(filepath):
-            self.netRC = netrc.netrc(filepath)
+            self.netrc = netrc.netrc(filepath)
         else:
-            self.netRC = None
+            self.netrc = None
 
     def get_entry(self, hostname):
-        if self.netRC is None:
+        if self.netrc is None:
             return (None, None, None)
-        return self.netRC.authenticators(hostname)
+        return self.netrc.authenticators(hostname)
 
 class ToolConfiguration2:
 
     def merge(self, filepath, configuration_default):
-        z = configuration_default.copy()
+        result_configuration = configuration_default.copy()
         config_parser = ConfigParser()
         config = config_parser.read(filepath)
         for section_name in config_parser.sections():
             hash = {}
             for option in config_parser.options(section_name):
                 hash[option] = config_parser.get(section_name, option)
-            z[section_name] = hash
-        return z
+            result_configuration[section_name] = hash
+        return result_configuration
 
 class ShellCmd(object):
 
@@ -658,7 +658,7 @@ class ShellCmd(object):
         return content
 
 class Confluence(object):
-    def __init__(self, netRC, config):
+    def __init__(self, net_rc, config):
         self.config = config
 
         base_url = config['default']['base_url']
@@ -667,7 +667,7 @@ class Confluence(object):
         result = urlparse(base_url)
         hostname = result.netloc.split(":")[0]
 
-        array = netRC.authenticators(hostname)
+        array = net_rc.authenticators(hostname)
 
         if array is None:
             print("hostname not found: "+hostname)
@@ -750,11 +750,11 @@ class Confluence(object):
         return lookup
 
     def read_from_asciidoctor(self, filename):
-        shellCmd = ShellCmd()
+        shell_cmd = ShellCmd()
         args = ['asciidoctor', '-b', 'xhtml5', '-o', '-', filename]
 #        args = [ 'asciidoctor', '-s', '-b', 'xhtml5',  '-o', '-',  filename ]
 #        args = [ 'asciidoctor','-s','-d','book','-b', 'xhtml5',  '-o', '-',  filename ]
-        content = shellCmd.execute(args)
+        content = shell_cmd.execute(args)
         return content
 
     def get_ancestor_id(self, title):
@@ -776,10 +776,10 @@ class Confluence(object):
         if not json_result.get('results', None):
             json_result2 = self.c.create_page(title, content, ancestor_id)
         else:
-            id = self.get_element_by_path("results[0].id", json_result)
+            page_id = self.get_element_by_path("results[0].id", json_result)
             version = self.get_element_by_path("results[0].version.number", json_result)
             version = version + 1
-            json_result2 = self.c.update_page(id, version, title, content, ancestor_id)
+            json_result2 = self.c.update_page(page_id, version, title, content, ancestor_id)
         return json_result2
 
     def process_file(self, filename, parent_page_title=None):
@@ -804,11 +804,11 @@ class Confluence(object):
             message = message + " under parent page '{0}'".format(parent_page_title)
 
         result = self.publish(title, xml, ancestor_id)
-        id = result["id"]
+        page_id = result["id"]
 
         for img in image_src_list:
             print("  Appending image '{0}'".format(img))
-            self.c.attach_file_to_page(id, img, "initial")
+            self.c.attach_file_to_page(page_id, img, "initial")
 
     def file_to_xml(self, filename):
         fix = ConfluenceFixes(self.config)
@@ -1047,8 +1047,8 @@ if __name__ == "__main__":
 
     #print(default_config)
 
-    netRC = load_netrc()
-    confluence = Confluence(netRC, default_config)
+    net_rc = load_netrc()
+    confluence = Confluence(net_rc, default_config)
 
     if parsed_args.command == 'download':
         confluence.dump("", parsed_args.page_title)
