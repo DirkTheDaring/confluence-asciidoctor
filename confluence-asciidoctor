@@ -610,6 +610,10 @@ class ConfluenceFixes:
 
     @staticmethod
     def process_confluence_xml(xhtml_textstring):
+        ET.register_namespace( "xhtml",   "http://www.w3.org/1999/xhtml")
+        ET.register_namespace(    "ac",   "http://www.atlassian.com/schema/confluence/4/ac/")
+        ET.register_namespace(    "ri",   "http://www.atlassian.com/schema/confluence/4/ri/")
+
         dom = ET.XML(xhtml_textstring)
         result = ET.tostring(dom, pretty_print=True, encoding="UTF-8").decode('utf-8')
         return result
