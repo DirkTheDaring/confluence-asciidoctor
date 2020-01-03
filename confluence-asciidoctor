@@ -609,15 +609,10 @@ class ConfluenceFixes:
         dom = ET.XML(xhtml_textstring)
         result = self.process_asciidoctor_dom(dom)
         return result
-
-    # FIXME processing of snippets for confluence 
     @staticmethod
-    def process_confluence_xml(xhtml_textstring):
-        #ET.register_namespace( "xhtml",   "http://www.w3.org/1999/xhtml")
-        #ET.register_namespace(    "ac",   "http://www.atlassian.com/schema/confluence/4/ac/")
-        #ET.register_namespace(    "ri",   "http://www.atlassian.com/schema/confluence/4/ri/")
+    def get_namespaces():
         xmlns = {
-#                "xhtml":    "http://www.w3.org/1999/xhtml",
+                "xhtml":    "http://www.w3.org/1999/xhtml",
                 "ac":       "http://www.atlassian.com/schema/confluence/4/ac/",
                 "ri":       "http://www.atlassian.com/schema/confluence/4/ri/"
         }
@@ -625,17 +620,43 @@ class ConfluenceFixes:
         for key, value in xmlns.items():
             list.append("=".join([ "xmlns:" + key, "\"" + value +"\""]))
 
-        namespace_string = " ".join(list)
-        namespace_string = namespace_string + " xmlns=\"http://www.w3.org/1999/xhtml\""
+        namespace_string = " ".join(list) 
+        return namespace_string
 
-        xhtml_textstring ='<!DOCTYPE ac:root SYSTEM "test" [ <!ENTITY szlig "ß"> <!ENTITY nbsp " "><!ENTITY ouml "ö"><!ENTITY uuml "ü"><!ENTITY auml "ä">]>' + "<ac:root " + namespace_string + ">" + xhtml_textstring + "</ac:root>"
+    @staticmethod
+    def get_entitities():
+        entities = {
+#                "amp": "&",
+                "auml": "ä",
+                "Auml": "Ä",
+                "euro": "€",
+                "gt": ">",
+                "lt": "<",
+                "nbsp": " ",
+                "ouml": "ö",
+                "Ouml": "Ö",
+                "szlig": "ß",
+                "uuml": "ü",
+                "Üuml": "Ü"
+        }
+        list = []
+        for key, value in entities.items():
+            list.append("<!ENTITY " + " ".join([key, "\"" + value + "\"" ]) + ">")
+        txt  = "".join(list)
+
+        return txt
+
+    # read xml file with confluence formatting (ac: tagas ...) and prcess it for consumption (so when it crashes, it will not upload)
+    def process_confluence_xml(self, xhtml_textstring):
+
+        namespace_string = self.get_namespaces()
+        entities = self.get_entitities()
+        xhtml_textstring ='<!DOCTYPE ac:root SYSTEM "test" [' + entities + "]><ac:root " + namespace_string + ">" + xhtml_textstring + "</ac:root>"
         dom = ET.fromstring(xhtml_textstring)
-        #parser = ET.HTMLParser()
-        #dom    = ET.parse(StringIO(xhtml_textstring), parser)
         result = ET.tostring(dom, pretty_print=True, encoding="UTF-8").decode('utf-8')
-        print(result)
-        print("FIXME, you need to program the return value")
-        exit(0)
+        # cut  the outer root tag
+        result = result[(result.find(">")+1):]
+        result = result[:result.rfind("<")]
         return result
 
 
